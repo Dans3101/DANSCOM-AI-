@@ -1,0 +1,97 @@
+{
+  "entities": {
+    "Session": {
+      "title": "Session",
+      "description": "WhatsApp session authentication data",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "data": { "type": "string", "description": "JSON stringified auth data" }
+      },
+      "required": ["id", "data"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile and permissions",
+      "type": "object",
+      "properties": {
+        "jid": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin", "owner"] },
+        "isPremium": { "type": "boolean" },
+        "premiumUntil": { "type": "string", "format": "date-time" },
+        "name": { "type": "string" }
+      },
+      "required": ["jid", "role"]
+    },
+    "Setting": {
+      "title": "Setting",
+      "description": "Bot feature configurations",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string" },
+        "value": { "type": "boolean" }
+      },
+      "required": ["key", "value"]
+    },
+    "Premium": {
+      "title": "Premium",
+      "description": "Premium subscription tracking",
+      "type": "object",
+      "properties": {
+        "jid": { "type": "string" },
+        "amount": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "expiry": { "type": "string", "format": "date-time" }
+      },
+      "required": ["jid", "amount", "timestamp", "expiry"]
+    },
+    "Analytic": {
+      "title": "Analytic",
+      "description": "Bot usage analytics",
+      "type": "object",
+      "properties": {
+        "command": { "type": "string" },
+        "usageCount": { "type": "number" },
+        "lastUsed": { "type": "string", "format": "date-time" }
+      },
+      "required": ["command", "usageCount"]
+    },
+    "Contact": {
+      "title": "Contact",
+      "description": "Saved WhatsApp contacts",
+      "type": "object",
+      "properties": {
+        "jid": { "type": "string" },
+        "name": { "type": "string" },
+        "savedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["jid"]
+    }
+  },
+  "firestore": {
+    "/sessions/{sessionId}": {
+      "schema": "Session",
+      "description": "Baileys authentication sessions"
+    },
+    "/users/{jid}": {
+      "schema": "User",
+      "description": "Registered bot users"
+    },
+    "/settings/{key}": {
+      "schema": "Setting",
+      "description": "Feature toggles"
+    },
+    "/premium/{subscriptionId}": {
+      "schema": "Premium",
+      "description": "Subscription records"
+    },
+    "/analytics/{command}": {
+      "schema": "Analytic",
+      "description": "Command usage stats"
+    },
+    "/contacts/{jid}": {
+      "schema": "Contact",
+      "description": "Auto-saved contacts"
+    }
+  }
+}
