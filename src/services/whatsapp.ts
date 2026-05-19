@@ -17,6 +17,7 @@ import { config } from '../config/index.js';
 let sock: WASocket | null = null;
 let currentQr: string | null = null;
 let currentPairingCode: string | null = null;
+let currentPairingNumber: string | null = null;
 
 export const getConnectionState = () => ({
     qr: currentQr,
@@ -30,23 +31,39 @@ export const requestPairingCode = async (number: string) => {
     if (sock.user) throw new Error('Already connected');
     
     currentPairingNumber = number.replace(/[^0-9]/g, '');
-    const code = await sock.requestPairingCode(currentPairingNumber);
-    currentPairingCode = code || null;
-    return code;
+    console.log(`Requesting pairing code for: ${currentPairingNumber}`);
+    try {
+        const code = await sock.requestPairingCode(currentPairingNumber);
+        currentPairingCode = code || null;
+        console.log(`Pairing code received: ${code}`);
+        return code;
+    } catch (error) {
+        console.error('Failed to request pairing code:', error);
+        throw error;
+    }
 };
 
-let currentPairingNumber: string | null = null;
 export const startWhatsApp = async () => {
+    // If already initialized, don't start again unless we need to
+    if (sock && !sock.user) {
+        console.log('Bot already initializing...');
+    }
+
   const { version, isLatest } = await fetchLatestBaileysVersion();
   console.log(`Using Baileys v${version.join('.')}, isLatest: ${isLatest}`);
 
   let authState;
   
-  if (sessionsDb) {
-    console.log('Using Firestore for session storage...');
-    authState = await useFirestoreAuthState('default_bot');
-  } else {
-    console.log('Fallback: Using local file system for session storage...');
+  try {
+    if (sessionsDb) {
+        console.log('Using Firestore for session storage...');
+        authState = await useFirestoreAuthState('default_bot');
+    } else {
+        console.log('Fallback: Using local file system for session storage...');
+        authState = await useMultiFileAuthState('auth_info_baileys');
+    }
+  } catch (error) {
+    console.error('Auth state initialization failed:', error);
     authState = await useMultiFileAuthState('auth_info_baileys');
   }
 
@@ -57,47 +74,36 @@ export const startWhatsApp = async () => {
     logger: pino({ level: 'silent' }),
     printQRInTerminal: true,
     auth: state,
-    browser: ['DANSCOM', 'Safari', '3.0'],
+    browser: ['DANSCOM', 'Chrome', '110.0.0'],
     generateHighQualityLinkPreview: true,
+    syncFullHistory: false
   });
 
   sock.ev.on('creds.update', saveCreds);
-
-  const pairingNumber = config.bot.ownerNumber;
-  const usePairingCode = true; // We will trigger this if requested
-
-  if (usePairingCode && !state.creds.registered) {
-    if (pairingNumber) {
-        setTimeout(async () => {
-            try {
-                const code = await sock?.requestPairingCode(pairingNumber);
-                currentPairingCode = code || null;
-                console.log(`\n\n========================================`);
-                console.log(`PAIRING CODE: ${code}`);
-                console.log(`========================================\n\n`);
-            } catch (err) {
-                console.error('Pairing Code Error:', err);
-            }
-        }, 3000);
-    }
-  }
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
     
     if (qr) {
       currentQr = qr;
-      console.log('QR Code generated. Scan with your WhatsApp:');
+      console.log('>> QR Code generated');
       QRCode.generate(qr, { small: true });
     }
 
     if (connection === 'close') {
-      const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-      console.log('Connection closed. Reconnecting...', shouldReconnect);
+      currentQr = null;
+      currentPairingCode = null;
+      const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      
+      console.log(`Connection closed (Reason: ${statusCode}). Reconnecting: ${shouldReconnect}`);
+      
       if (shouldReconnect) {
-        startWhatsApp();
+        setTimeout(() => startWhatsApp(), 5000);
       }
     } else if (connection === 'open') {
+      currentQr = null;
+      currentPairingCode = null;
       console.log('WhatsApp connection opened successfully!');
       startAutoBio(sock!);
     }

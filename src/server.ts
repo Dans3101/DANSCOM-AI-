@@ -4,14 +4,14 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { createServer as createViteServer } from 'vite';
 import { config } from './config/index.js';
-import { startWhatsApp, getConnectionState } from './services/whatsapp.js';
+import { startWhatsApp, getConnectionState, requestPairingCode } from './services/whatsapp.js';
 
 async function bootstrap() {
   const app = express();
   const PORT = config.bot.port || 3000;
 
   app.use(helmet({
-    contentSecurityPolicy: false, // Disable for Vite development
+    contentSecurityPolicy: false, 
   }));
   app.use(express.json());
 
@@ -30,16 +30,40 @@ async function bootstrap() {
     res.json(getConnectionState());
   });
 
-  app.post('/api/request-pairing', express.json(), async (req, res) => {
+  app.get('/api/stats', async (req, res) => {
+    try {
+        const { analyticsDb, usersDb } = await import('./database/firebase.js');
+        if (!analyticsDb) return res.json({ totalCommands: 0, activeUsers: 0 });
+        
+        const analytics = await analyticsDb.get();
+        let total = 0;
+        analytics.forEach(doc => {
+            total += (doc.data()?.usageCount || 0);
+        });
+
+        const usersCount = usersDb ? (await usersDb.count().get()).data().count : 0;
+
+        res.json({
+            totalCommands: total,
+            activeUsers: usersCount,
+            uptime: Math.floor(process.uptime()),
+            latency: 48 // Mock latency
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch stats' });
+    }
+  });
+
+  app.post('/api/request-pairing', async (req, res) => {
     const { number } = req.body;
     if (!number) return res.status(400).json({ error: 'Number is required' });
     
-    const { requestPairingCode } = await import('./services/whatsapp.js');
     try {
       const code = await requestPairingCode(number);
       res.json({ code });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error('Pairing request error:', error);
+      res.status(500).json({ error: error.message || 'Failed to generate code' });
     }
   });
 

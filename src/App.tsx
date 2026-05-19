@@ -46,6 +46,8 @@ export default function App() {
   const [isRequestingPairing, setIsRequestingPairing] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
 
+  const [stats, setStats] = useState({ totalCommands: 12400, activeUsers: 842, uptime: 0, latency: 48 });
+
   useEffect(() => {
     const checkStatus = () => {
         fetch('/api/health')
@@ -57,8 +59,13 @@ export default function App() {
           .then(res => res.json())
           .then(data => {
             setConnection(data);
-            if (data.connected) setStatus('Online (Bot Running)');
+            if (data.connected) setStatus('Online (DANSCOM Running)');
           })
+          .catch(console.error);
+
+        fetch('/api/stats')
+          .then(res => res.json())
+          .then(data => setStats(data))
           .catch(console.error);
     };
 
@@ -169,17 +176,25 @@ export default function App() {
                 ) : (
                   <div className="space-y-8">
                     <div className="flex flex-col items-center">
-                      <div className="p-4 bg-white border-4 border-slate-100 rounded-3xl mb-4">
+                      <div className="p-4 bg-white border-4 border-slate-100 rounded-3xl mb-4 min-w-[200px] min-h-[200px] flex items-center justify-center">
                         {connection.qr ? (
                           <QRCodeSVG value={connection.qr} size={200} />
                         ) : (
-                          <div className="w-[200px] h-[200px] flex flex-col items-center justify-center text-slate-300">
-                            <RefreshCw className="w-8 h-8 animate-spin mb-2" />
-                            <p className="text-[10px] uppercase font-bold tracking-widest">Generating QR...</p>
+                          <div className="flex flex-col items-center justify-center text-slate-300">
+                            {connection.connected ? (
+                                <Bot className="w-12 h-12 text-emerald-500 mb-2" />
+                            ) : (
+                                <RefreshCw className="w-8 h-8 animate-spin mb-2" />
+                            )}
+                            <p className="text-[10px] uppercase font-bold tracking-widest">
+                                {connection.connected ? 'Connected' : 'Initializing...'}
+                            </p>
                           </div>
                         )}
                       </div>
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Scan QR with WhatsApp</p>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        {connection.qr ? 'Scan QR with WhatsApp' : 'Waiting for connection...'}
+                      </p>
                     </div>
 
                     <div className="relative">
@@ -336,29 +351,31 @@ export default function App() {
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">System Uptime</p>
                   <div className="flex items-end justify-between">
-                    <p className="text-2xl font-bold text-slate-800 tracking-tight tabular-nums">162h 4m</p>
+                    <p className="text-2xl font-bold text-slate-800 tracking-tight tabular-nums">
+                        {Math.floor(stats.uptime / 3600)}h {Math.floor((stats.uptime % 3600) / 60)}m
+                    </p>
                     <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">+99.9%</span>
                   </div>
                 </motion.div>
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">API Latency</p>
                   <div className="flex items-end justify-between">
-                    <p className="text-2xl font-bold text-slate-800 tracking-tight tabular-nums">48ms</p>
+                    <p className="text-2xl font-bold text-slate-800 tracking-tight tabular-nums">{stats.latency}ms</p>
                     <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">Stable</span>
                   </div>
                 </motion.div>
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Total Commands</p>
                   <div className="flex items-end justify-between">
-                    <p className="text-2xl font-bold text-slate-800 tracking-tight tabular-nums">12.4k</p>
+                    <p className="text-2xl font-bold text-slate-800 tracking-tight tabular-nums">{(stats.totalCommands / 1000).toFixed(1)}k</p>
                     <span className="text-[10px] text-slate-400 font-bold bg-slate-50 px-2 py-0.5 rounded-full border border-slate-100">All Time</span>
                   </div>
                 </motion.div>
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">AI Queries</p>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Active Users</p>
                   <div className="flex items-end justify-between">
-                    <p className="text-2xl font-bold text-slate-800 tracking-tight tabular-nums">842</p>
-                    <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">Gemini-Flash</span>
+                    <p className="text-2xl font-bold text-slate-800 tracking-tight tabular-nums">{stats.activeUsers}</p>
+                    <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">Live</span>
                   </div>
                 </motion.div>
               </div>
