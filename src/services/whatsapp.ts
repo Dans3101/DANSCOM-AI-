@@ -18,6 +18,7 @@ let sock: WASocket | null = null;
 let currentQr: string | null = null;
 let currentPairingCode: string | null = null;
 let currentPairingNumber: string | null = null;
+let isInitializing = false;
 
 export const getConnectionState = () => ({
     qr: currentQr,
@@ -27,66 +28,111 @@ export const getConnectionState = () => ({
 });
 
 export const requestPairingCode = async (number: string) => {
-    if (!sock) throw new Error('WhatsApp socket not initialized');
+    if (!sock) {
+        console.log('Socket not found, starting WhatsApp...');
+        await startWhatsApp();
+    }
+    
+    // Wait a bit for socket to be ready
+    let retry = 0;
+    while (!sock && retry < 10) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        retry++;
+    }
+
+    if (!sock) throw new Error('WhatsApp socket failed to initialize');
     if (sock.user) throw new Error('Already connected');
     
     currentPairingNumber = number.replace(/[^0-9]/g, '');
-    console.log(`Requesting pairing code for: ${currentPairingNumber}`);
+    console.log(`[Pairing] Requesting code for: ${currentPairingNumber}`);
+    
     try {
         const code = await sock.requestPairingCode(currentPairingNumber);
         currentPairingCode = code || null;
-        console.log(`Pairing code received: ${code}`);
+        console.log(`[Pairing] Code received: ${code}`);
         return code;
-    } catch (error) {
-        console.error('Failed to request pairing code:', error);
-        throw error;
+    } catch (error: any) {
+        console.error('[Pairing] Error:', error);
+        throw new Error(error.message || 'Failed to request pairing code. Try again in 10 seconds.');
     }
 };
 
-export const startWhatsApp = async () => {
-    // If already initialized, don't start again unless we need to
-    if (sock && !sock.user) {
-        console.log('Bot already initializing...');
+export const restartWhatsApp = async () => {
+    console.log('>> Force restarting WhatsApp connection...');
+    isInitializing = false;
+    currentQr = null;
+    currentPairingCode = null;
+    if (sock) {
+        try {
+            // Remove listeners first to avoid double reconnects
+            sock.ev.removeAllListeners('connection.update');
+            sock.end(undefined);
+        } catch (e) {}
     }
+    sock = null;
+    return startWhatsApp();
+};
 
+export const startWhatsApp = async () => {
+    if (isInitializing) {
+        console.log('>> Socket already initializing, skipping...');
+        return sock;
+    }
+    isInitializing = true;
+
+  console.log('>> Initializing DANSCOM WhatsApp Bot...');
   const { version, isLatest } = await fetchLatestBaileysVersion();
-  console.log(`Using Baileys v${version.join('.')}, isLatest: ${isLatest}`);
+  console.log(`>> Using Baileys v${version.join('.')}, isLatest: ${isLatest}`);
 
   let authState;
   
   try {
     if (sessionsDb) {
-        console.log('Using Firestore for session storage...');
+        console.log('>> Using Firestore for session storage');
         authState = await useFirestoreAuthState('default_bot');
     } else {
-        console.log('Fallback: Using local file system for session storage...');
+        console.log('>> Using local file system for session storage');
         authState = await useMultiFileAuthState('auth_info_baileys');
     }
   } catch (error) {
-    console.error('Auth state initialization failed:', error);
+    console.error('>> Auth state initialization failed:', error);
     authState = await useMultiFileAuthState('auth_info_baileys');
   }
 
   const { state, saveCreds } = authState;
+
+  // Cleanup old socket if exists
+  if (sock) {
+    try {
+        sock.ev.removeAllListeners('connection.update');
+        sock.ev.removeAllListeners('creds.update');
+        sock.ev.removeAllListeners('messages.upsert');
+    } catch (e) {}
+  }
 
   sock = makeWASocket({
     version,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: true,
     auth: state,
-    browser: ['DANSCOM', 'Chrome', '110.0.0'],
+    // Using a more standard browser setting for pairing code compatibility
+    browser: ['Ubuntu', 'Chrome', '110.0.5563.147'],
     generateHighQualityLinkPreview: true,
-    syncFullHistory: false
+    syncFullHistory: false,
+    connectTimeoutMs: 60000,
+    keepAliveIntervalMs: 15000,
   });
+
+  isInitializing = false;
 
   sock.ev.on('creds.update', saveCreds);
 
-  sock.ev.on('connection.update', (update) => {
+  sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
     
     if (qr) {
       currentQr = qr;
-      console.log('>> QR Code generated');
+      console.log('>> NEW QR Code generated');
       QRCode.generate(qr, { small: true });
     }
 
@@ -96,15 +142,29 @@ export const startWhatsApp = async () => {
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       
-      console.log(`Connection closed (Reason: ${statusCode}). Reconnecting: ${shouldReconnect}`);
+      console.log(`>> Connection closed (Reason: ${statusCode}). Reconnecting: ${shouldReconnect}`);
       
+      if (statusCode === DisconnectReason.loggedOut) {
+        console.log('>> Session logged out. Clearing data...');
+        if (sessionsDb) {
+            try {
+                const snapshot = await sessionsDb.where('__name__', '>=', 'default_bot_').get();
+                const batch = sessionsDb.firestore.batch();
+                snapshot.docs.forEach(doc => batch.delete(doc.ref));
+                await batch.commit();
+            } catch (e) {
+                console.error('Failed to clear firestore session:', e);
+            }
+        }
+      }
+
       if (shouldReconnect) {
         setTimeout(() => startWhatsApp(), 5000);
       }
     } else if (connection === 'open') {
       currentQr = null;
       currentPairingCode = null;
-      console.log('WhatsApp connection opened successfully!');
+      console.log('>> DANSCOM connected successfully!');
       startAutoBio(sock!);
     }
   });

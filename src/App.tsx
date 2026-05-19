@@ -44,7 +44,9 @@ export default function App() {
   const [showPairing, setShowPairing] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isRequestingPairing, setIsRequestingPairing] = useState(false);
+  const [pairingError, setPairingError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isRestarting, setIsRestarting] = useState(false);
 
   const [stats, setStats] = useState({ totalCommands: 12400, activeUsers: 842, uptime: 0, latency: 48 });
 
@@ -77,6 +79,7 @@ export default function App() {
   const handleRequestPairingCode = async () => {
     if (!phoneNumber) return;
     setIsRequestingPairing(true);
+    setPairingError(null);
     try {
       const res = await fetch('/api/request-pairing', {
         method: 'POST',
@@ -86,11 +89,27 @@ export default function App() {
       const data = await res.json();
       if (data.code) {
         setConnection(prev => ({ ...prev, pairingCode: data.code }));
+      } else {
+        setPairingError(data.error || 'Failed to generate code. Is your phone number correct?');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Request pairing error:', error);
+      setPairingError('Network error. Please check your internet connection.');
     } finally {
       setIsRequestingPairing(false);
+    }
+  };
+
+  const handleRestart = async () => {
+    setIsRestarting(true);
+    try {
+      await fetch('/api/restart', { method: 'POST' });
+      setPhoneNumber('');
+      setPairingError(null);
+    } catch (error) {
+      console.error('Restart error:', error);
+    } finally {
+      setTimeout(() => setIsRestarting(false), 2000);
     }
   };
 
@@ -159,6 +178,16 @@ export default function App() {
               </div>
 
               <div className="p-8">
+                <div className="flex justify-end mb-4">
+                  <button 
+                    onClick={handleRestart}
+                    disabled={isRestarting}
+                    className="flex items-center gap-2 text-[10px] font-bold text-slate-400 hover:text-emerald-500 uppercase tracking-widest transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isRestarting ? 'animate-spin' : ''}`} />
+                    Refresh Connection
+                  </button>
+                </div>
                 {connection.connected ? (
                   <div className="text-center py-8">
                     <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -234,6 +263,16 @@ export default function App() {
                             )}
                             Generate Pairing Code
                           </motion.button>
+
+                          {pairingError && (
+                            <motion.p 
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: 'auto' }}
+                              className="text-[10px] font-bold text-rose-500 bg-rose-50 p-3 rounded-xl border border-rose-100"
+                            >
+                              Error: {pairingError}
+                            </motion.p>
+                          )}
                         </div>
                       ) : (
                         <div className="space-y-4">

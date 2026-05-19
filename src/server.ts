@@ -54,6 +54,16 @@ async function bootstrap() {
     }
   });
 
+  app.post('/api/restart', async (req, res) => {
+    try {
+      const { restartWhatsApp } = await import('./services/whatsapp.js');
+      await restartWhatsApp();
+      res.json({ status: 'Restarting...' });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post('/api/request-pairing', async (req, res) => {
     const { number } = req.body;
     if (!number) return res.status(400).json({ error: 'Number is required' });
