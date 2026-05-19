@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Master Gate (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isEmailVerified() && request.auth.token.email == 'musembidaniel615@gmail.com';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Analytics
+    match /analytics/{commandId} {
+      allow read: if isAdmin();
+      allow write: if false; // Server only
+    }
+
+    // Users
+    match /users/{userId} {
+      allow read: if isAdmin();
+      allow write: if false; // Server only
+    }
+
+    // Settings
+    match /settings/{featureId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Sessions (Sensitive)
+    match /sessions/{recordId} {
+      allow read, write: if false; // strictly server only
+    }
+
+    // Contacts
+    match /contacts/{jid} {
+      allow read: if isAdmin();
+      allow write: if false; // server only
+    }
+
+    // Premium
+    match /premium/{userId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+  }
+}

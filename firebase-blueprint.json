@@ -1,97 +1,90 @@
 {
   "entities": {
-    "Session": {
-      "title": "Session",
-      "description": "WhatsApp session authentication data",
+    "Analytics": {
+      "title": "Analytics",
+      "description": "Command usage statistics",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "data": { "type": "string", "description": "JSON stringified auth data" }
-      },
-      "required": ["id", "data"]
-    },
-    "User": {
-      "title": "User",
-      "description": "User profile and permissions",
-      "type": "object",
-      "properties": {
-        "jid": { "type": "string" },
-        "role": { "type": "string", "enum": ["user", "admin", "owner"] },
-        "isPremium": { "type": "boolean" },
-        "premiumUntil": { "type": "string", "format": "date-time" },
-        "name": { "type": "string" }
-      },
-      "required": ["jid", "role"]
-    },
-    "Setting": {
-      "title": "Setting",
-      "description": "Bot feature configurations",
-      "type": "object",
-      "properties": {
-        "key": { "type": "string" },
-        "value": { "type": "boolean" }
-      },
-      "required": ["key", "value"]
-    },
-    "Premium": {
-      "title": "Premium",
-      "description": "Premium subscription tracking",
-      "type": "object",
-      "properties": {
-        "jid": { "type": "string" },
-        "amount": { "type": "number" },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "expiry": { "type": "string", "format": "date-time" }
-      },
-      "required": ["jid", "amount", "timestamp", "expiry"]
-    },
-    "Analytic": {
-      "title": "Analytic",
-      "description": "Bot usage analytics",
-      "type": "object",
-      "properties": {
-        "command": { "type": "string" },
         "usageCount": { "type": "number" },
         "lastUsed": { "type": "string", "format": "date-time" }
       },
-      "required": ["command", "usageCount"]
+      "required": ["usageCount", "lastUsed"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Bot user profile",
+      "type": "object",
+      "properties": {
+        "usageCount": { "type": "number" },
+        "lastSeen": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Setting": {
+      "title": "Setting",
+      "description": "Bot feature configuration",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["enabled", "updatedAt"]
+    },
+    "SessionData": {
+      "title": "SessionData",
+      "description": "Serialized WhatsApp authentication state",
+      "type": "object",
+      "properties": {
+        "data": { "type": "string" }
+      },
+      "required": ["data"]
     },
     "Contact": {
       "title": "Contact",
-      "description": "Saved WhatsApp contacts",
+      "description": "Saved WhatsApp contact",
       "type": "object",
       "properties": {
         "jid": { "type": "string" },
         "name": { "type": "string" },
         "savedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["jid"]
+      "required": ["jid", "name", "savedAt"]
+    },
+    "PremiumSubscription": {
+      "title": "PremiumSubscription",
+      "description": "User subscription details",
+      "type": "object",
+      "properties": {
+        "expiry": { "type": "string", "format": "date-time" },
+        "plan": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["expiry"]
     }
   },
   "firestore": {
-    "/sessions/{sessionId}": {
-      "schema": "Session",
-      "description": "Baileys authentication sessions"
+    "analytics/{commandId}": {
+      "schema": "Analytics",
+      "description": "Usage stats for specific commands"
     },
-    "/users/{jid}": {
+    "users/{userId}": {
       "schema": "User",
-      "description": "Registered bot users"
+      "description": "Bot user records"
     },
-    "/settings/{key}": {
+    "settings/{featureId}": {
       "schema": "Setting",
-      "description": "Feature toggles"
+      "description": "Global feature flags"
     },
-    "/premium/{subscriptionId}": {
-      "schema": "Premium",
-      "description": "Subscription records"
+    "sessions/{recordId}": {
+      "schema": "SessionData",
+      "description": "Auth state fragments"
     },
-    "/analytics/{command}": {
-      "schema": "Analytic",
-      "description": "Command usage stats"
-    },
-    "/contacts/{jid}": {
+    "contacts/{jid}": {
       "schema": "Contact",
-      "description": "Auto-saved contacts"
+      "description": "Saved contacts directory"
+    },
+    "premium/{userId}": {
+      "schema": "PremiumSubscription",
+      "description": "Premium access records"
     }
   }
 }

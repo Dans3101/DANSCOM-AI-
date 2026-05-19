@@ -24,7 +24,11 @@ export const getConnectionState = () => ({
     qr: currentQr,
     pairingCode: currentPairingCode,
     connected: !!sock?.user,
-    pairingNumber: currentPairingNumber
+    pairingNumber: currentPairingNumber,
+    user: sock?.user ? {
+        id: sock.user.id,
+        name: sock.user.name || 'DANSCOM Bot'
+    } : null
 });
 
 export const requestPairingCode = async (number: string) => {

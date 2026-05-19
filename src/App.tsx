@@ -35,7 +35,7 @@ import {
 
 export default function App() {
   const [status, setStatus] = useState('Checking...');
-  const [connection, setConnection] = useState<{qr: string | null, pairingCode: string | null, connected: boolean, pairingNumber: string | null}>({
+  const [connection, setConnection] = useState<{qr: string | null, pairingCode: string | null, connected: boolean, pairingNumber: string | null, user?: {id: string, name: string}}>({
     qr: null,
     pairingCode: null,
     connected: false,
@@ -49,27 +49,48 @@ export default function App() {
   const [isRestarting, setIsRestarting] = useState(false);
 
   const [stats, setStats] = useState({ totalCommands: 12400, activeUsers: 842, uptime: 0, latency: 48 });
+  const [plugins, setPlugins] = useState<any[]>([]);
+  const [aiConfig, setAiConfig] = useState<any>(null);
 
   useEffect(() => {
-    const checkStatus = () => {
-        fetch('/api/health')
-          .then(res => res.json())
-          .then(data => setStatus(data.status))
-          .catch(() => setStatus('Connecting...'));
+    const safeFetch = async (url: string) => {
+        try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+            const contentType = res.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") !== -1) {
+                return await res.json();
+            } else {
+                const text = await res.text();
+                throw new Error(`Expected JSON but got ${contentType || 'unknown'}: ${text.substring(0, 50)}...`);
+            }
+        } catch (err) {
+            console.error(`Fetch failed for ${url}:`, err);
+            throw err;
+        }
+    };
 
-        fetch('/api/connection')
-          .then(res => res.json())
+    const checkStatus = () => {
+        safeFetch('/api/connection')
           .then(data => {
             setConnection(data);
-            if (data.connected) setStatus('Online (DANSCOM Running)');
+            if (data.connected) {
+                setStatus('Online (DANSCOM Running)');
+            } else {
+                safeFetch('/api/health')
+                  .then(hData => setStatus(hData.status))
+                  .catch(() => setStatus('Connecting...'));
+            }
           })
-          .catch(console.error);
+          .catch(() => setStatus('Connection Error'));
 
-        fetch('/api/stats')
-          .then(res => res.json())
+        safeFetch('/api/stats')
           .then(data => setStats(data))
-          .catch(console.error);
+          .catch(() => {});
     };
+
+    safeFetch('/api/plugins').then(setPlugins).catch(() => {});
+    safeFetch('/api/ai-config').then(setAiConfig).catch(() => {});
 
     checkStatus();
     const interval = setInterval(checkStatus, 5000);
@@ -86,6 +107,12 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ number: phoneNumber })
       });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(errorData.error || 'Failed to request pairing code');
+      }
+
       const data = await res.json();
       if (data.code) {
         setConnection(prev => ({ ...prev, pairingCode: data.code }));
@@ -94,7 +121,7 @@ export default function App() {
       }
     } catch (error: any) {
       console.error('Request pairing error:', error);
-      setPairingError('Network error. Please check your internet connection.');
+      setPairingError(error.message || 'Network error. Please check your internet connection.');
     } finally {
       setIsRequestingPairing(false);
     }
@@ -348,7 +375,10 @@ export default function App() {
                 Connect Bot
                 {connection.connected && <div className="ml-auto w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>}
               </li>
-              <li className="flex items-center gap-3 text-sm font-medium text-slate-500 hover:text-emerald-600 hover:bg-slate-50 transition-all cursor-pointer p-2.5 rounded-xl group/li">
+              <li 
+                onClick={() => setActiveTab('sessions')}
+                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li ${activeTab === 'sessions' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+              >
                 <Users className="w-4 h-4 transition-transform group-hover/li:scale-110" />
                 Active Sessions
               </li>
@@ -478,6 +508,170 @@ export default function App() {
                 </div>
               </div>
             </>
+          ) : activeTab === 'ai' ? (
+            <div className="flex-1 flex flex-col gap-8">
+                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm p-10">
+                    <div className="flex items-center gap-4 mb-8">
+                        <div className="w-12 h-12 bg-blue-500 text-white rounded-2xl flex items-center justify-center">
+                            <Zap className="w-6 h-6" />
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">AI Engine Configuration</h2>
+                            <p className="text-sm text-slate-400 font-medium tracking-wide">Gemini Advanced Integration Settings</p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-6">
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Primary Model</label>
+                                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between">
+                                    <span className="font-bold text-slate-700">{aiConfig?.model || 'Gemini 1.5 Flash'}</span>
+                                    <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded-lg font-bold">Stable</span>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">System Instruction</label>
+                                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                                    <p className="text-sm text-slate-600 italic leading-relaxed">"{aiConfig?.instruction}"</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-blue-50/50 rounded-[2rem] border border-blue-100 p-8">
+                            <h4 className="text-xs font-black text-blue-900 uppercase tracking-widest mb-4">Active Capabilities</h4>
+                            <div className="grid grid-cols-2 gap-3">
+                                {aiConfig?.capabilities.map((cap: string, i: number) => (
+                                    <div key={i} className="flex items-center gap-2 bg-white/50 border border-blue-100 p-3 rounded-xl">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+                                        <span className="text-[10px] font-bold text-blue-800 uppercase">{cap}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+          ) : activeTab === 'plugins' ? (
+            <div className="flex-1">
+                <div className="flex items-center justify-between mb-8">
+                    <div>
+                        <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Plugin Manager</h2>
+                        <p className="text-sm text-slate-400">Manage {plugins.length} active command modules</p>
+                    </div>
+                    <button className="px-6 py-2.5 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest rounded-2xl hover:bg-slate-800 transition-all flex items-center gap-2">
+                        <RefreshCw className="w-3 h-3" />
+                        Reload Plugins
+                    </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                    {plugins.map((plugin, i) => (
+                        <motion.div 
+                            key={i}
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            transition={{ delay: i * 0.05 }}
+                            className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md transition-all group"
+                        >
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="p-3 bg-slate-50 text-slate-400 rounded-2xl group-hover:bg-emerald-50 group-hover:text-emerald-500 transition-colors">
+                                    <Puzzle className="w-5 h-5" />
+                                </div>
+                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 bg-slate-50 px-3 py-1 rounded-full">{plugin.category}</span>
+                            </div>
+                            <h3 className="text-sm font-black text-slate-800 uppercase mb-2 tracking-tight">{plugin.name}</h3>
+                            <p className="text-xs text-slate-400 font-medium leading-relaxed">{plugin.desc}</p>
+                            <div className="mt-6 flex items-center justify-between pt-6 border-t border-slate-50">
+                                <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest flex items-center gap-1.5">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                                    Active
+                                </span>
+                                <Settings className="w-4 h-4 text-slate-200 hover:text-slate-400 cursor-pointer transition-colors" />
+                            </div>
+                        </motion.div>
+                    ))}
+                </div>
+            </div>
+          ) : activeTab === 'sessions' ? (
+            <div className="flex-1 max-w-4xl mx-auto w-full">
+                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden">
+                    <div className="bg-slate-900 p-10 text-white relative">
+                        <div className="flex items-center gap-6 relative z-10">
+                            <div className="w-20 h-20 bg-white/10 backdrop-blur-md rounded-[2rem] flex items-center justify-center border border-white/20">
+                                <Smartphone className="w-10 h-10" />
+                            </div>
+                            <div>
+                                <h2 className="text-2xl font-black uppercase tracking-tight">Active Bot Session</h2>
+                                <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mt-1">Multi-Device Authentication (Baileys)</p>
+                            </div>
+                            <div className="ml-auto">
+                                <span className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${connection.connected ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}`}>
+                                    {connection.connected ? 'Active Connection' : 'Disconnected'}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="absolute top-0 right-0 p-10 opacity-10">
+                            <Database className="w-32 h-32" />
+                        </div>
+                    </div>
+
+                    <div className="p-10">
+                        {connection.connected ? (
+                            <div className="space-y-10">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Linked Identification</label>
+                                        <p className="text-lg font-black text-slate-800 tabular-nums tracking-wide">{connection.user?.id || '254XXXXXX'}</p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Display Profile Name</label>
+                                        <p className="text-lg font-black text-slate-800 tracking-tight">{connection.user?.name || 'DANSCOM BOT'}</p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Authentication Key Path</label>
+                                        <div className="flex items-center gap-2 text-slate-500 font-mono text-xs bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">
+                                            <Database className="w-3 h-3" />
+                                            firestore://auth_state/default_bot
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Hardware Identifier</label>
+                                        <p className="text-xs font-bold text-slate-600 uppercase tracking-widest">Chrome 110 (Ubuntu Linux)</p>
+                                    </div>
+                                </div>
+
+                                <div className="pt-10 border-t border-slate-100 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                                        <span className="text-[10px] font-black uppercase text-emerald-600 tracking-widest">WebSocket Secure Latency: 12ms</span>
+                                    </div>
+                                    <button 
+                                        onClick={handleRestart}
+                                        className="px-6 py-2.5 bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-rose-100 transition-all border border-rose-100"
+                                    >
+                                        Disconnect & Clear
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="text-center py-20 flex flex-col items-center">
+                                <div className="w-20 h-20 bg-slate-50 rounded-[2.5rem] flex items-center justify-center mb-6">
+                                    <Smartphone className="w-8 h-8 text-slate-300" />
+                                </div>
+                                <h3 className="text-lg font-black text-slate-400 uppercase tracking-tight">No Active Authenticated Session</h3>
+                                <p className="text-xs text-slate-400 mt-2 font-medium">Link your device via QR or Pairing Code to see session metadata.</p>
+                                <button 
+                                    onClick={() => setShowPairing(true)}
+                                    className="mt-8 px-8 py-3 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl hover:scale-105 active:scale-95 transition-all shadow-xl shadow-slate-200"
+                                >
+                                    Initiate Connection
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
           ) : activeTab === 'console' ? (
             <div className="flex-1 flex flex-col bg-slate-950 rounded-[2.5rem] overflow-hidden border border-slate-800 shadow-2xl">
               <div className="bg-slate-900 px-8 py-6 flex items-center justify-between border-b border-slate-800">
@@ -500,14 +694,7 @@ export default function App() {
                 <p className="animate-pulse text-emerald-500 font-bold text-lg">_</p>
               </div>
             </div>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center bg-white rounded-[2.5rem] border border-dashed border-slate-200">
-               <Puzzle className="w-16 h-16 text-slate-200 mb-4" />
-               <h3 className="text-lg font-bold text-slate-400 uppercase tracking-widest">Module Under Development</h3>
-               <p className="text-xs text-slate-400 mt-2">The {activeTab} module will be available in v2.5.0</p>
-               <button onClick={() => setActiveTab('dashboard')} className="mt-8 px-6 py-2 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-slate-800 transition-colors">Return to Dashboard</button>
-            </div>
-          )}
+          ) : null}
         </main>
       </div>
     </div>

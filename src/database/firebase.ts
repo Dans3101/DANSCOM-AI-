@@ -1,6 +1,8 @@
 import admin from 'firebase-admin';
 import { config } from '../config/index.js';
 
+export let isFirestoreUsable = false;
+
 if (!admin.apps.length) {
   try {
     if (config.firebase.projectId && config.firebase.privateKey && config.firebase.clientEmail) {
@@ -17,6 +19,16 @@ if (!admin.apps.length) {
       admin.initializeApp();
       console.log('Firebase Admin initialized with environment credentials');
     }
+    
+    // Quick probe to see if API is enabled
+    admin.firestore().listCollections().then(() => {
+        isFirestoreUsable = true;
+        console.log('Firestore is ready and accessible');
+    }).catch(err => {
+        console.warn('Firestore is initialized but API might be disabled or unreachable:', err.message);
+        isFirestoreUsable = false;
+    });
+
   } catch (error) {
     console.warn('Firebase initialization failed. Falling back to local storage patterns.', error);
   }
