@@ -1,4 +1,4 @@
-# WA-Auto-Bot 🤖
+# DANSCOM 🤖
 
 Modern, production-ready WhatsApp automation bot using Node.js, Baileys, and Firebase.
 

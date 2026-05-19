@@ -7,7 +7,7 @@ export const startAutoBio = (sock: WASocket) => {
             if (await isEnabled('auto_bio')) {
                 const date = new Date();
                 const time = date.toLocaleTimeString('en-KE', { timeZone: 'Africa/Nairobi' });
-                const bio = `WA-Auto-Bot | 🕒 ${time} | Always active 🤖`;
+                const bio = `DANSCOM | 🕒 ${time} | Always active 🤖`;
                 await sock.updateProfileStatus(bio);
                 console.log('Bio updated:', bio);
             }

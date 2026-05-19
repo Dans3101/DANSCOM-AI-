@@ -15,7 +15,27 @@ import { isEnabled } from '../utils/settings.js';
 import { config } from '../config/index.js';
 
 let sock: WASocket | null = null;
+let currentQr: string | null = null;
+let currentPairingCode: string | null = null;
 
+export const getConnectionState = () => ({
+    qr: currentQr,
+    pairingCode: currentPairingCode,
+    connected: !!sock?.user,
+    pairingNumber: currentPairingNumber
+});
+
+export const requestPairingCode = async (number: string) => {
+    if (!sock) throw new Error('WhatsApp socket not initialized');
+    if (sock.user) throw new Error('Already connected');
+    
+    currentPairingNumber = number.replace(/[^0-9]/g, '');
+    const code = await sock.requestPairingCode(currentPairingNumber);
+    currentPairingCode = code || null;
+    return code;
+};
+
+let currentPairingNumber: string | null = null;
 export const startWhatsApp = async () => {
   const { version, isLatest } = await fetchLatestBaileysVersion();
   console.log(`Using Baileys v${version.join('.')}, isLatest: ${isLatest}`);
@@ -37,16 +57,36 @@ export const startWhatsApp = async () => {
     logger: pino({ level: 'silent' }),
     printQRInTerminal: true,
     auth: state,
-    browser: ['WA-Auto-Bot', 'Safari', '3.0'],
+    browser: ['DANSCOM', 'Safari', '3.0'],
     generateHighQualityLinkPreview: true,
   });
 
   sock.ev.on('creds.update', saveCreds);
 
+  const pairingNumber = config.bot.ownerNumber;
+  const usePairingCode = true; // We will trigger this if requested
+
+  if (usePairingCode && !state.creds.registered) {
+    if (pairingNumber) {
+        setTimeout(async () => {
+            try {
+                const code = await sock?.requestPairingCode(pairingNumber);
+                currentPairingCode = code || null;
+                console.log(`\n\n========================================`);
+                console.log(`PAIRING CODE: ${code}`);
+                console.log(`========================================\n\n`);
+            } catch (err) {
+                console.error('Pairing Code Error:', err);
+            }
+        }, 3000);
+    }
+  }
+
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
     
     if (qr) {
+      currentQr = qr;
       console.log('QR Code generated. Scan with your WhatsApp:');
       QRCode.generate(qr, { small: true });
     }

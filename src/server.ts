@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { createServer as createViteServer } from 'vite';
 import { config } from './config/index.js';
-import { startWhatsApp } from './services/whatsapp.js';
+import { startWhatsApp, getConnectionState } from './services/whatsapp.js';
 
 async function bootstrap() {
   const app = express();
@@ -23,7 +23,24 @@ async function bootstrap() {
 
   // API Health check
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'Online (Bot Running)' });
+    res.json({ status: 'Online (DANSCOM Running)' });
+  });
+
+  app.get('/api/connection', (req, res) => {
+    res.json(getConnectionState());
+  });
+
+  app.post('/api/request-pairing', express.json(), async (req, res) => {
+    const { number } = req.body;
+    if (!number) return res.status(400).json({ error: 'Number is required' });
+    
+    const { requestPairingCode } = await import('./services/whatsapp.js');
+    try {
+      const code = await requestPairingCode(number);
+      res.json({ code });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   // Vite middleware
