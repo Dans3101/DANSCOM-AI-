@@ -14,6 +14,7 @@ import {
   restartWhatsAppSession,
   restartWhatsApp
 } from './services/whatsapp.js';
+import { analyticsDb, usersDb, isFirestoreUsable } from './database/firebase.js';
 
 async function bootstrap() {
   const app = express();
@@ -29,7 +30,8 @@ async function bootstrap() {
 
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 1000 // Increased limit to prevent blocking polls
+    max: 1000, // Increased limit to prevent blocking polls
+    validate: false // Avoid proxy validation checks failing and throwing ERR_ERL_UNEXPECTED_X_FORWARDED_FOR
   });
   app.use(limiter);
 
@@ -44,8 +46,6 @@ async function bootstrap() {
 
   app.get('/api/stats', async (req, res) => {
     try {
-        const { analyticsDb, usersDb, isFirestoreUsable } = await import('./database/firebase.js');
-        
         if (!isFirestoreUsable || !analyticsDb) {
             return res.json({ 
                 totalCommands: 0, 
@@ -167,10 +167,16 @@ async function bootstrap() {
     res.status(404).json({ error: 'API route not found' });
   });
 
-  // Global API error handler
-  app.use('/api/*', (err: any, req: any, res: any, next: any) => {
-    console.error('API Error:', err);
-    res.status(500).json({ error: 'Internal Server Error', message: err.message });
+  // Global application error boundary - returns JSON for any failures on API routes
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error('Unhandled Application Error:', err);
+    if (req.path && req.path.startsWith('/api')) {
+      return res.status(err.status || 500).json({ 
+        error: 'Internal Server Error', 
+        message: err.message || 'An unexpected error occurred' 
+      });
+    }
+    next(err);
   });
 
   // Vite middleware
