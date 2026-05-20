@@ -10,6 +10,9 @@ async function bootstrap() {
   const app = express();
   const PORT = 3000;
 
+  // Trust reverse proxy (e.g. Render, Cloud Run, etc.) for correct rate limiter IP extraction
+  app.set('trust proxy', 1);
+
   app.use(helmet({
     contentSecurityPolicy: false, 
   }));

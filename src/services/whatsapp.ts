@@ -1,4 +1,4 @@
-import makeWASocket, { 
+import makeWASocketImport, { 
   DisconnectReason, 
   fetchLatestBaileysVersion, 
   WASocket,
@@ -13,6 +13,29 @@ import { handleMessages } from '../handlers/messageHandler.js';
 import { startAutoBio } from './autobio.js';
 import { isEnabled } from '../utils/settings.js';
 import { config } from '../config/index.js';
+
+// Resolve makeWASocket function dynamically to handle both ESM and Node bundled CJS environments
+const getMakeWASocket = (): any => {
+    if (typeof makeWASocketImport === 'function') {
+        return makeWASocketImport;
+    }
+    if (makeWASocketImport && typeof (makeWASocketImport as any).default === 'function') {
+        return (makeWASocketImport as any).default;
+    }
+    try {
+        // Fallback for strict CommonJS contexts where the library is required directly
+        const baileysModule = require('@whiskeysockets/baileys');
+        if (typeof baileysModule === 'function') {
+            return baileysModule;
+        }
+        if (baileysModule && typeof baileysModule.default === 'function') {
+            return baileysModule.default;
+        }
+    } catch (e) {}
+    return makeWASocketImport;
+};
+
+const makeWASocket = getMakeWASocket();
 
 let sock: WASocket | null = null;
 let currentQr: string | null = null;
