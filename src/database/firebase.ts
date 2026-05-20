@@ -19,20 +19,24 @@ if (!admin.apps.length) {
       admin.initializeApp();
       console.log('Firebase Admin initialized with environment credentials');
     }
-    
-    // Quick probe to see if API is enabled
-    admin.firestore().listCollections().then(() => {
-        isFirestoreUsable = true;
-        console.log('Firestore is ready and accessible');
-    }).catch(err => {
-        console.warn('Firestore is initialized but API might be disabled or unreachable:', err.message);
-        isFirestoreUsable = false;
-    });
-
   } catch (error) {
     console.warn('Firebase initialization failed. Falling back to local storage patterns.', error);
   }
 }
+
+export const firestoreReadyPromise = (async () => {
+  if (!admin.apps.length) return false;
+  try {
+    await admin.firestore().listCollections();
+    isFirestoreUsable = true;
+    console.log('Firestore is ready and accessible');
+    return true;
+  } catch (err: any) {
+    console.warn('Firestore is initialized but API might be disabled or unreachable:', err.message);
+    isFirestoreUsable = false;
+    return false;
+  }
+})();
 
 export const db = admin.apps.length ? admin.firestore() : null;
 export const analyticsDb = db ? db.collection('analytics') : null;

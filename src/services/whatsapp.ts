@@ -8,7 +8,7 @@ import { Boom } from '@hapi/boom';
 import pino from 'pino';
 import QRCode from 'qrcode-terminal';
 import { useFirestoreAuthState } from '../database/firestoreStore.js';
-import { sessionsDb } from '../database/firebase.js';
+import { sessionsDb, firestoreReadyPromise } from '../database/firebase.js';
 import { handleMessages } from '../handlers/messageHandler.js';
 import { startAutoBio } from './autobio.js';
 import { isEnabled } from '../utils/settings.js';
@@ -84,114 +84,132 @@ export const startWhatsApp = async () => {
     }
     isInitializing = true;
 
-  console.log('>> Initializing DANSCOM WhatsApp Bot...');
-  const { version, isLatest } = await fetchLatestBaileysVersion();
-  console.log(`>> Using Baileys v${version.join('.')}, isLatest: ${isLatest}`);
-
-  let authState;
-  
   try {
-    if (sessionsDb) {
-        console.log('>> Using Firestore for session storage');
-        authState = await useFirestoreAuthState('default_bot');
-    } else {
-        console.log('>> Using local file system for session storage');
+    console.log('>> Initializing DANSCOM WhatsApp Bot...');
+    
+    let version: [number, number, number] = [2, 3000, 1015942434]; // Robust fallback
+    try {
+        const latest = await fetchLatestBaileysVersion().catch(() => null);
+        if (latest?.version) {
+            version = latest.version;
+            console.log(`>> Using Baileys v${version.join('.')}, isLatest: ${latest.isLatest}`);
+        } else {
+            console.log(`>> Using fallback Baileys v${version.join('.')}`);
+        }
+    } catch (err) {
+        console.warn('>> Failed to fetch latest Baileys version, using fallback:', err);
+    }
+
+    let authState;
+    
+    try {
+        const isReady = await firestoreReadyPromise;
+        if (sessionsDb && isReady) {
+            console.log('>> Using Firestore for session storage');
+            authState = await useFirestoreAuthState('default_bot');
+        } else {
+            console.log('>> Using local file system for session storage');
+            authState = await useMultiFileAuthState('auth_info_baileys');
+        }
+    } catch (error) {
+        console.error('>> Auth state initialization failed:', error);
         authState = await useMultiFileAuthState('auth_info_baileys');
     }
-  } catch (error) {
-    console.error('>> Auth state initialization failed:', error);
-    authState = await useMultiFileAuthState('auth_info_baileys');
-  }
 
-  const { state, saveCreds } = authState;
+    const { state, saveCreds } = authState;
 
-  // Cleanup old socket if exists
-  if (sock) {
-    try {
-        sock.ev.removeAllListeners('connection.update');
-        sock.ev.removeAllListeners('creds.update');
-        sock.ev.removeAllListeners('messages.upsert');
-    } catch (e) {}
-  }
-
-  sock = makeWASocket({
-    version,
-    logger: pino({ level: 'silent' }),
-    printQRInTerminal: true,
-    auth: state,
-    // Using a more standard browser setting for pairing code compatibility
-    browser: ['Ubuntu', 'Chrome', '110.0.5563.147'],
-    generateHighQualityLinkPreview: true,
-    syncFullHistory: false,
-    connectTimeoutMs: 60000,
-    keepAliveIntervalMs: 15000,
-  });
-
-  isInitializing = false;
-
-  sock.ev.on('creds.update', saveCreds);
-
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
-    
-    if (qr) {
-      currentQr = qr;
-      console.log('>> NEW QR Code generated');
-      QRCode.generate(qr, { small: true });
+    // Cleanup old socket if exists
+    if (sock) {
+        try {
+            sock.ev.removeAllListeners('connection.update');
+            sock.ev.removeAllListeners('creds.update');
+            sock.ev.removeAllListeners('messages.upsert');
+        } catch (e) {}
     }
 
-    if (connection === 'close') {
-      currentQr = null;
-      currentPairingCode = null;
-      const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      
-      console.log(`>> Connection closed (Reason: ${statusCode}). Reconnecting: ${shouldReconnect}`);
-      
-      if (statusCode === DisconnectReason.loggedOut) {
-        console.log('>> Session logged out. Clearing data...');
-        if (sessionsDb) {
-            try {
-                const snapshot = await sessionsDb.where('__name__', '>=', 'default_bot_').get();
-                const batch = sessionsDb.firestore.batch();
-                snapshot.docs.forEach(doc => batch.delete(doc.ref));
-                await batch.commit();
-            } catch (e) {
-                console.error('Failed to clear firestore session:', e);
+    sock = makeWASocket({
+        version,
+        logger: pino({ level: 'silent' }),
+        printQRInTerminal: true,
+        auth: state,
+        // Using a more standard browser setting for pairing code compatibility
+        browser: ['Ubuntu', 'Chrome', '110.0.5563.147'],
+        generateHighQualityLinkPreview: true,
+        syncFullHistory: false,
+        connectTimeoutMs: 60000,
+        keepAliveIntervalMs: 15000,
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+            currentQr = qr;
+            console.log('>> NEW QR Code generated');
+            QRCode.generate(qr, { small: true });
+        }
+
+        if (connection === 'close') {
+            currentQr = null;
+            currentPairingCode = null;
+            const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            
+            console.log(`>> Connection closed (Reason: ${statusCode}). Reconnecting: ${shouldReconnect}`);
+            
+            if (statusCode === DisconnectReason.loggedOut) {
+                console.log('>> Session logged out. Clearing data...');
+                const isReady = await firestoreReadyPromise;
+                if (sessionsDb && isReady) {
+                    try {
+                        const snapshot = await sessionsDb.where('__name__', '>=', 'default_bot_').get();
+                        const batch = sessionsDb.firestore.batch();
+                        snapshot.docs.forEach(doc => batch.delete(doc.ref));
+                        await batch.commit();
+                    } catch (e) {
+                        console.error('Failed to clear firestore session:', e);
+                    }
+                }
+            }
+
+            if (shouldReconnect) {
+                setTimeout(() => startWhatsApp(), 5000);
+            }
+        } else if (connection === 'open') {
+            currentQr = null;
+            currentPairingCode = null;
+            console.log('>> DANSCOM connected successfully!');
+            startAutoBio(sock!);
+        }
+    });
+
+    sock.ev.on('messages.upsert', async (m) => {
+        if (m.type === 'notify') {
+            await handleMessages(sock!, m);
+        }
+    });
+
+    sock.ev.on('call', async (calls) => {
+        if (await isEnabled('anticall')) {
+            for (const call of calls) {
+                if (call.status === 'offer') {
+                    console.log(`Rejecting call from ${call.from}`);
+                    await sock?.rejectCall(call.id, call.from);
+                    await sock?.sendMessage(call.from, { 
+                        text: '⚠️ *Automatic Call Rejection*\nI am currently in bot mode and cannot receive calls. Please send a message instead.' 
+                    });
+                }
             }
         }
-      }
+    });
 
-      if (shouldReconnect) {
-        setTimeout(() => startWhatsApp(), 5000);
-      }
-    } else if (connection === 'open') {
-      currentQr = null;
-      currentPairingCode = null;
-      console.log('>> DANSCOM connected successfully!');
-      startAutoBio(sock!);
-    }
-  });
-
-  sock.ev.on('messages.upsert', async (m) => {
-    if (m.type === 'notify') {
-      await handleMessages(sock!, m);
-    }
-  });
-
-  sock.ev.on('call', async (calls) => {
-    if (await isEnabled('anticall')) {
-        for (const call of calls) {
-            if (call.status === 'offer') {
-                console.log(`Rejecting call from ${call.from}`);
-                await sock?.rejectCall(call.id, call.from);
-                await sock?.sendMessage(call.from, { 
-                    text: '⚠️ *Automatic Call Rejection*\nI am currently in bot mode and cannot receive calls. Please send a message instead.' 
-                });
-            }
-        }
-    }
-  });
+  } catch (err: any) {
+    console.error('>> WhatsApp Bot startup failed:', err.message);
+  } finally {
+    isInitializing = false;
+  }
 
   return sock;
 };
