@@ -3,6 +3,8 @@ import { setFeature, isEnabled } from '../utils/settings.js';
 import { geminiAssistant } from '../services/gemini.js';
 import { analyticsDb, premiumDb, contactsDb } from '../database/firebase.js';
 import admin from 'firebase-admin';
+import fs from 'fs';
+import path from 'path';
 
 export const processCommand = async (
   sock: WASocket, 
@@ -22,6 +24,58 @@ export const processCommand = async (
   }
 
   switch (command) {
+    case 'menu':
+    case 'help':
+      const menuText = `🤖 *DANSCOM MULTI-DEVICE BOT* 🤖
+_AI Solutions for a Smarter Future_
+
+*COMMANDS MENU LIST:*
+
+📱 *User Commands:*
+• *.menu* or *.help* - Display this list of commands.
+• *.ping* - Check bot latency and online status.
+• *.ai [prompt]* - Meet your Gemini AI assistant.
+• *.image [desc]* - Generate custom intelligence imagery.
+• *.settings* - View status of automated features.
+
+📥 *Downloader Utilities:*
+• *.video [url]* / *.ytmp4* - Get YouTube video files.
+• *.fb [url]* - Obtain Facebook video streams.
+• *.ig [url]* - Keep Instagram media locally.
+• *.tiktok [url]* - Get TikTok video copies.
+
+🌟 *Sub-Accounts & Tiers:*
+• *.premium* - Read benefits of premium plans.
+• *.pay* - Get payment support instructions.
+• *.checksub* - View active subscription state.
+
+🛠️ *Admin Controls:*
+• *.enable [feature]* - Activate automated background processes.
+• *.disable [feature]* - Turn off background processes.
+• *.stats* - Review system load and command charts.
+• *.contacts* - List automatically saved phone contacts.
+
+⚡ *Togglable Automation Features:*
+_auto_read, auto_status_view, auto_status_like, ai_smart_reply, anticall, auto_bio, fake_typing, fake_recording, see_deleted_messages, save_view_once_
+
+_Powered by DANSCOM AI Solutions_`.trim();
+
+      try {
+        const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');
+        if (fs.existsSync(imagePath)) {
+          await sock.sendMessage(from, {
+            image: fs.readFileSync(imagePath),
+            caption: menuText
+          }, { quoted: m });
+        } else {
+          await sock.sendMessage(from, { text: menuText }, { quoted: m });
+        }
+      } catch (err: any) {
+        console.error('Failed to send menu image banner, falling back to text:', err.message);
+        await sock.sendMessage(from, { text: menuText }, { quoted: m });
+      }
+      break;
+
     case 'ping':
       await sock.sendMessage(from, { text: 'Pong! 🏓' }, { quoted: m });
       break;

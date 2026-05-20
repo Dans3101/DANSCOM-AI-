@@ -65,16 +65,65 @@ export const handleMessages = async (sock: WASocket, upsert: { messages: any[] }
         await sock.sendMessage(ownerJid, { forward: m });
     }
 
-    const body = m.message.conversation || 
-                 m.message.extendedTextMessage?.text || 
-                 m.message.imageMessage?.caption || 
-                 m.message.videoMessage?.caption || '';
-    
-    const isOwner = sender.includes(config.bot.ownerNumber);
-    const prefix = config.bot.prefix;
-    const isCmd = body.startsWith(prefix);
-    const command = isCmd ? body.slice(prefix.length).split(' ')[0].toLowerCase() : '';
-    const args = isCmd ? body.slice(prefix.length + command.length).trim().split(' ') : [];
+    let body = '';
+    if (m.message) {
+        const msgType = Object.keys(m.message)[0];
+        let realMsg = m.message;
+        if (msgType === 'ephemeralMessage' || msgType === 'viewOnceMessage' || msgType === 'viewOnceMessageV2') {
+            const content = m.message[msgType];
+            realMsg = content?.message || realMsg;
+        }
+
+        body = realMsg.conversation || 
+               realMsg.extendedTextMessage?.text || 
+               realMsg.imageMessage?.caption || 
+               realMsg.videoMessage?.caption || 
+               realMsg.templateButtonReplyMessage?.selectedId ||
+               realMsg.buttonsResponseMessage?.selectedButtonId ||
+               realMsg.listResponseMessage?.singleSelectReply?.selectedRowId ||
+               '';
+    }
+
+    const numericSender = sender.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+    const numericOwner = config.bot.ownerNumber ? config.bot.ownerNumber.replace(/[^0-9]/g, '') : '';
+    const isOwner = !!(
+      m.key.fromMe || 
+      (numericOwner && numericSender === numericOwner) || 
+      (config.bot.ownerNumber && sender.includes(config.bot.ownerNumber))
+    );
+
+    body = body.trim();
+    const prefixes = ['.', '/', '!', '#'];
+    let isCmd = false;
+    let command = '';
+    let args: string[] = [];
+
+    for (const pref of prefixes) {
+      if (body.startsWith(pref)) {
+        isCmd = true;
+        const line = body.slice(pref.length).trim();
+        command = line.split(' ')[0].toLowerCase();
+        args = line.slice(command.length).trim().split(/\s+/).filter(Boolean);
+        break;
+      }
+    }
+
+    // List of known commands that can run without prefix
+    const knownCommands = [
+      'ping', 'menu', 'help', 'enable', 'disable', 'settings', 
+      'video', 'ytmp4', 'fb', 'ig', 'tiktok', 'image', 'ai', 
+      'gpt', 'premium', 'pay', 'checksub', 'stats', 'contacts'
+    ];
+
+    if (!isCmd) {
+      const lowerBody = body.toLowerCase().trim();
+      const firstWord = lowerBody.split(/\s+/)[0];
+      if (knownCommands.includes(firstWord)) {
+        isCmd = true;
+        command = firstWord;
+        args = body.slice(firstWord.length).trim().split(/\s+/).filter(Boolean);
+      }
+    }
 
     // Presence updates
     if (await isEnabled('fake_typing')) {
