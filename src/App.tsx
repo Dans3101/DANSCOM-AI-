@@ -493,6 +493,59 @@ export default function App() {
         <main className="flex-1 p-8 overflow-y-auto flex flex-col gap-8">
           {activeTab === 'dashboard' ? (
             <>
+              {/* DANSCOM COMMANDS & IMAGERY REFERENCE */}
+              <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col md:flex-row items-stretch">
+                <div className="md:w-2/5 relative min-h-[250px] bg-slate-900 overflow-hidden">
+                  <img 
+                    src="/src/assets/images/danscom_menu_banner_1779306614113.png" 
+                    alt="DANSCOM Cybernetic Headquarters" 
+                    className="w-full h-full object-cover object-center absolute inset-0"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t md:bg-gradient-to-r from-slate-950/90 via-slate-900/40 to-transparent flex flex-col justify-end p-8">
+                    <span className="text-[9px] bg-blue-500 text-white font-black px-2 py-0.5 rounded uppercase tracking-wider w-max mb-2">INTELLIGENCE PLATFORM</span>
+                    <h3 className="text-xl font-bold text-white tracking-tight">DANSCOM Command Suite</h3>
+                    <p className="text-xs text-slate-300 mt-1">Multi-device automation running securely on 3000</p>
+                  </div>
+                </div>
+                <div className="flex-1 p-8 md:p-10 flex flex-col justify-between">
+                  <div>
+                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-6">WhatsApp Interactive Commands list</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-3">
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider text-slate-400">📱 USER & CHAT UTILITIES</p>
+                        <ul className="text-xs text-slate-600 space-y-2">
+                          <li>• <strong className="text-slate-800">.menu</strong> or <strong className="text-slate-800">.help</strong> : Display all active commands</li>
+                          <li>• <strong className="text-slate-800">.ping</strong> : Check socket response latency & status</li>
+                          <li>• <strong className="text-slate-800">.ai [prompt]</strong> : Ask any question to Gemini AI</li>
+                          <li>• <strong className="text-slate-800">.image [prompt]</strong> : Generate custom graphics</li>
+                          <li>• <strong className="text-slate-800">.settings</strong> : View present chat automation switches</li>
+                        </ul>
+                      </div>
+                      <div className="space-y-3">
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider text-slate-400">📥 MEDIA DOWNLOADERS</p>
+                        <ul className="text-xs text-slate-600 space-y-2">
+                          <li>• <strong className="text-slate-800">.video [url]</strong> : Download videos from YouTube</li>
+                          <li>• <strong className="text-slate-800">.fb [url]</strong> : Scrape Facebook video links</li>
+                          <li>• <strong className="text-slate-800">.ig [url]</strong> : Fetch Instagram feed media</li>
+                          <li>• <strong className="text-slate-800">.tiktok [url]</strong> : Copy TikTok watermarked videos</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-8 pt-6 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">⚡ TYPE ANY PREFIX (. / !) COMMAND IN WHATSAPP TO TEST</span>
+                    <button 
+                      onClick={() => setShowPairing(true)}
+                      className="px-6 py-2.5 bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider rounded-2xl hover:bg-emerald-600 transition-colors shadow-sm shadow-emerald-50 flex items-center gap-2"
+                    >
+                      <QrCode className="w-4 h-4" />
+                      View QR Code / Add Number
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* Top Stats Row */}
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
@@ -586,58 +639,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* DANSCOM COMMANDS & IMAGERY REFERENCE */}
-              <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col md:flex-row items-stretch">
-                <div className="md:w-2/5 relative min-h-[250px] bg-slate-900 overflow-hidden">
-                  <img 
-                    src="/src/assets/images/danscom_menu_banner_1779306614113.png" 
-                    alt="DANSCOM Cybernetic Headquarters" 
-                    className="w-full h-full object-cover object-center absolute inset-0"
-                    referrerPolicy="no-referrer"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t md:bg-gradient-to-r from-slate-950/90 via-slate-900/40 to-transparent flex flex-col justify-end p-8">
-                    <span className="text-[9px] bg-blue-500 text-white font-black px-2 py-0.5 rounded uppercase tracking-wider w-max mb-2">INTELLIGENCE PLATFORM</span>
-                    <h3 className="text-xl font-bold text-white tracking-tight">DANSCOM Command Suite</h3>
-                    <p className="text-xs text-slate-300 mt-1">Multi-device automation running securely on 3000</p>
-                  </div>
-                </div>
-                <div className="flex-1 p-8 md:p-10 flex flex-col justify-between">
-                  <div>
-                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-6">WhatsApp Interactive Commands list</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-3">
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider text-slate-400">📱 USER & CHAT UTILITIES</p>
-                        <ul className="text-xs text-slate-600 space-y-2">
-                          <li>• <strong className="text-slate-800">.menu</strong> or <strong className="text-slate-800">.help</strong> : Display all active commands</li>
-                          <li>• <strong className="text-slate-800">.ping</strong> : Check socket response latency & status</li>
-                          <li>• <strong className="text-slate-800">.ai [prompt]</strong> : Ask any question to Gemini AI</li>
-                          <li>• <strong className="text-slate-800">.image [prompt]</strong> : Generate custom graphics</li>
-                          <li>• <strong className="text-slate-800">.settings</strong> : View present chat automation switches</li>
-                        </ul>
-                      </div>
-                      <div className="space-y-3">
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider text-slate-400">📥 MEDIA DOWNLOADERS</p>
-                        <ul className="text-xs text-slate-600 space-y-2">
-                          <li>• <strong className="text-slate-800">.video [url]</strong> : Download videos from YouTube</li>
-                          <li>• <strong className="text-slate-800">.fb [url]</strong> : Scrape Facebook video links</li>
-                          <li>• <strong className="text-slate-800">.ig [url]</strong> : Fetch Instagram feed media</li>
-                          <li>• <strong className="text-slate-800">.tiktok [url]</strong> : Copy TikTok watermarked videos</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-8 pt-6 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">⚡ TYPE ANY PREFIX (. / !) COMMAND IN WHATSAPP TO TEST</span>
-                    <button 
-                      onClick={() => setShowPairing(true)}
-                      className="px-6 py-2.5 bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider rounded-2xl hover:bg-emerald-600 transition-colors shadow-sm shadow-emerald-50 flex items-center gap-2"
-                    >
-                      <QrCode className="w-4 h-4" />
-                      View QR Code / Add Number
-                    </button>
-                  </div>
-                </div>
-              </div>
+
             </>
           ) : activeTab === 'ai' ? (
             <div className="flex-1 flex flex-col gap-8">

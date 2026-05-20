@@ -24,16 +24,34 @@ async function bootstrap() {
   app.set('trust proxy', 1);
 
   app.use(helmet({
-    contentSecurityPolicy: false, 
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: false,
+    crossOriginResourcePolicy: false,
   }));
+
+  // Custom CORS middleware for development inside iframes
+  app.use((req, res, next) => {
+    const origin = req.headers.origin || '*';
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   app.use(express.json());
 
-  const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 1000, // Increased limit to prevent blocking polls
-    validate: false // Avoid proxy validation checks failing and throwing ERR_ERL_UNEXPECTED_X_FORWARDED_FOR
+  // Dynamic Rate Limiter: Apply a very high threshold to avoid blocking legitimate dashboard updates
+  const apiLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000,
+    max: 10000, // Very relaxed allowance for high-frequency polling
+    validate: false
   });
-  app.use(limiter);
+  app.use('/api/', apiLimiter);
 
   // API Health check
   app.get('/api/health', (req, res) => {
