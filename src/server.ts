@@ -4,7 +4,16 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { createServer as createViteServer } from 'vite';
 import { config } from './config/index.js';
-import { startWhatsApp, getConnectionState, requestPairingCode } from './services/whatsapp.js';
+import { 
+  startWhatsApp, 
+  getConnectionState, 
+  getSessionsState, 
+  requestPairingCode, 
+  startWhatsAppSession, 
+  deleteWhatsAppSession, 
+  restartWhatsAppSession,
+  restartWhatsApp
+} from './services/whatsapp.js';
 
 async function bootstrap() {
   const app = express();
@@ -87,22 +96,65 @@ async function bootstrap() {
     });
   });
 
+  app.get('/api/sessions', (req, res) => {
+    res.json(getSessionsState());
+  });
+
+  app.post('/api/sessions', async (req, res) => {
+    const { sessionId } = req.body;
+    if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+    
+    // Clean sessionId to prevent visual bugs or injection
+    const cleanId = sessionId.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (!cleanId) return res.status(400).json({ error: 'Invalid sessionId' });
+
+    try {
+      await startWhatsAppSession(cleanId);
+      res.json({ status: 'Session started', sessionId: cleanId });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete('/api/sessions/:sessionId', async (req, res) => {
+    const { sessionId } = req.params;
+    if (!sessionId) return res.status(400).json({ error: 'sessionId parameter is required' });
+    
+    try {
+      await deleteWhatsAppSession(sessionId);
+      res.json({ status: 'Session deleted', sessionId });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/sessions/:sessionId/restart', async (req, res) => {
+    const { sessionId } = req.params;
+    if (!sessionId) return res.status(400).json({ error: 'sessionId parameter is required' });
+    
+    try {
+      await restartWhatsAppSession(sessionId);
+      res.json({ status: 'Session restarted', sessionId });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post('/api/restart', async (req, res) => {
     try {
-      const { restartWhatsApp } = await import('./services/whatsapp.js');
       await restartWhatsApp();
-      res.json({ status: 'Restarting...' });
+      res.json({ status: 'Restarting all sessions...' });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
   app.post('/api/request-pairing', async (req, res) => {
-    const { number } = req.body;
+    const { number, sessionId } = req.body;
     if (!number) return res.status(400).json({ error: 'Number is required' });
     
     try {
-      const code = await requestPairingCode(number);
+      const code = await requestPairingCode(number, sessionId || 'default_bot');
       res.json({ code });
     } catch (error: any) {
       console.error('Pairing request error:', error);

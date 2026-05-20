@@ -41,6 +41,9 @@ export default function App() {
     connected: false,
     pairingNumber: null
   });
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [newSessionName, setNewSessionName] = useState('');
+  const [pairingSessionId, setPairingSessionId] = useState('default_bot');
   const [showPairing, setShowPairing] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isRequestingPairing, setIsRequestingPairing] = useState(false);
@@ -84,6 +87,14 @@ export default function App() {
           })
           .catch(() => setStatus('Connection Error'));
 
+        safeFetch('/api/sessions')
+          .then(data => {
+            if (Array.isArray(data)) {
+                setSessions(data);
+            }
+          })
+          .catch(() => {});
+
         safeFetch('/api/stats')
           .then(data => setStats(data))
           .catch(() => {});
@@ -105,7 +116,7 @@ export default function App() {
       const res = await fetch('/api/request-pairing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ number: phoneNumber })
+        body: JSON.stringify({ number: phoneNumber, sessionId: pairingSessionId })
       });
       
       if (!res.ok) {
@@ -116,6 +127,7 @@ export default function App() {
       const data = await res.json();
       if (data.code) {
         setConnection(prev => ({ ...prev, pairingCode: data.code }));
+        setSessions(prev => prev.map(s => s.sessionId === pairingSessionId ? { ...s, pairingCode: data.code } : s));
       } else {
         setPairingError(data.error || 'Failed to generate code. Is your phone number correct?');
       }
@@ -130,13 +142,56 @@ export default function App() {
   const handleRestart = async () => {
     setIsRestarting(true);
     try {
-      await fetch('/api/restart', { method: 'POST' });
+      if (pairingSessionId && pairingSessionId !== 'default_bot') {
+        await fetch(`/api/sessions/${pairingSessionId}/restart`, { method: 'POST' });
+      } else {
+        await fetch('/api/restart', { method: 'POST' });
+      }
       setPhoneNumber('');
       setPairingError(null);
     } catch (error) {
       console.error('Restart error:', error);
     } finally {
       setTimeout(() => setIsRestarting(false), 2000);
+    }
+  };
+
+  const handleCreateSession = async () => {
+    if (!newSessionName) return;
+    const cleanName = newSessionName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (!cleanName) return;
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: cleanName })
+      });
+      if (res.ok) {
+        setNewSessionName('');
+        const sessionsRes = await fetch('/api/sessions');
+        if (sessionsRes.ok) {
+          const data = await sessionsRes.json();
+          if (Array.isArray(data)) setSessions(data);
+        }
+      }
+    } catch (error) {
+        console.error('Failed to create session:', error);
+    }
+  };
+
+  const handleDeleteSession = async (sessId: string) => {
+    if (sessId === 'default_bot') {
+      alert('The primary/default session cannot be deleted.');
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to delete session "${sessId}"?`)) return;
+    try {
+      const res = await fetch(`/api/sessions/${sessId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setSessions(prev => prev.filter(s => s.sessionId !== sessId));
+      }
+    } catch (error) {
+      console.error('Failed to delete session:', error);
     }
   };
 
@@ -178,158 +233,181 @@ export default function App() {
       </nav>
       
       <AnimatePresence>
-        {showPairing && (
-          <motion.div 
-            initial={{ opacity: 0 }} 
-            animate={{ opacity: 1 }} 
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-          >
+        {showPairing && (() => {
+          const activePairingSess = sessions.find(s => s.sessionId === pairingSessionId) || connection;
+          return (
             <motion.div 
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
             >
-              <div className="p-8 border-b border-slate-100 flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-bold text-slate-800">Bot Connection</h3>
-                  <p className="text-sm text-slate-400">Link your WhatsApp account</p>
-                </div>
-                <button 
-                  onClick={() => setShowPairing(false)}
-                  className="p-2 hover:bg-slate-50 rounded-full transition-colors"
-                >
-                  <X className="w-5 h-5 text-slate-400" />
-                </button>
-              </div>
-
-              <div className="p-8">
-                <div className="flex justify-end mb-4">
+              <motion.div 
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden my-8"
+              >
+                <div className="p-8 border-b border-slate-100 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-800">Bot Connection</h3>
+                    <p className="text-sm text-slate-400">Link your WhatsApp account</p>
+                  </div>
                   <button 
-                    onClick={handleRestart}
-                    disabled={isRestarting}
-                    className="flex items-center gap-2 text-[10px] font-bold text-slate-400 hover:text-emerald-500 uppercase tracking-widest transition-colors disabled:opacity-50"
+                    onClick={() => setShowPairing(false)}
+                    className="p-2 hover:bg-slate-50 rounded-full transition-colors"
                   >
-                    <RefreshCw className={`w-3 h-3 ${isRestarting ? 'animate-spin' : ''}`} />
-                    Refresh Connection
+                    <X className="w-5 h-5 text-slate-400" />
                   </button>
                 </div>
-                {connection.connected ? (
-                  <div className="text-center py-8">
-                    <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <Bot className="w-8 h-8" />
-                    </div>
-                    <h4 className="text-lg font-bold text-slate-800">Connected Successfully!</h4>
-                    <p className="text-sm text-slate-500 mt-1">Your bot is active and ready.</p>
+
+                {/* Session Selector */}
+                <div className="px-8 pt-6 pb-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Target Bot Account</label>
+                  <select 
+                    value={pairingSessionId}
+                    onChange={(e) => {
+                      setPairingSessionId(e.target.value);
+                      setPhoneNumber('');
+                      setPairingError(null);
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 transition-all cursor-pointer"
+                  >
+                    {sessions.map(s => (
+                      <option key={s.sessionId} value={s.sessionId}>
+                        {s.sessionId === 'default_bot' ? '🌐 Primary Bot (default)' : `🤖 Account: ${s.sessionId}`} {s.connected ? '● (Active)' : '○ (Click to Link)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="px-8 pb-8 pt-2">
+                  <div className="flex justify-end mb-4">
                     <button 
-                      onClick={() => setShowPairing(false)}
-                      className="mt-6 w-full py-3 bg-emerald-500 text-white font-bold rounded-2xl hover:bg-emerald-600 transition-colors"
+                      onClick={handleRestart}
+                      disabled={isRestarting}
+                      className="flex items-center gap-2 text-[10px] font-bold text-slate-400 hover:text-emerald-500 uppercase tracking-widest transition-colors disabled:opacity-50"
                     >
-                      Dismiss
+                      <RefreshCw className={`w-3 h-3 ${isRestarting ? 'animate-spin' : ''}`} />
+                      Refresh Connection
                     </button>
                   </div>
-                ) : (
-                  <div className="space-y-8">
-                    <div className="flex flex-col items-center">
-                      <div className="p-4 bg-white border-4 border-slate-100 rounded-3xl mb-4 min-w-[200px] min-h-[200px] flex items-center justify-center">
-                        {connection.qr ? (
-                          <QRCodeSVG value={connection.qr} size={200} />
-                        ) : (
-                          <div className="flex flex-col items-center justify-center text-slate-300">
-                            {connection.connected ? (
-                                <Bot className="w-12 h-12 text-emerald-500 mb-2" />
-                            ) : (
-                                <RefreshCw className="w-8 h-8 animate-spin mb-2" />
-                            )}
-                            <p className="text-[10px] uppercase font-bold tracking-widest">
-                                {connection.connected ? 'Connected' : 'Initializing...'}
-                            </p>
-                          </div>
-                        )}
+                  {activePairingSess.connected ? (
+                    <div className="text-center py-8">
+                      <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Bot className="w-8 h-8" />
                       </div>
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                        {connection.qr ? 'Scan QR with WhatsApp' : 'Waiting for connection...'}
-                      </p>
+                      <h4 className="text-lg font-bold text-slate-800">Connected Successfully!</h4>
+                      <p className="text-sm text-slate-500 mt-1">Bot "{pairingSessionId === 'default_bot' ? 'Primary' : pairingSessionId}" is active and ready.</p>
+                      <button 
+                        onClick={() => setShowPairing(false)}
+                        className="mt-6 w-full py-3 bg-emerald-500 text-white font-bold rounded-2xl hover:bg-emerald-600 transition-colors"
+                      >
+                        Dismiss
+                      </button>
                     </div>
-
-                    <div className="relative">
-                      <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-slate-100"></div>
-                      </div>
-                      <div className="relative flex justify-center text-xs uppercase font-bold text-slate-300">
-                        <span className="bg-white px-4 tracking-widest">OR</span>
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-center">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Pairing Code Method</p>
-                      
-                      {!connection.pairingCode ? (
-                        <div className="space-y-4">
-                          <div className="relative">
-                            <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                            <input 
-                              type="text" 
-                              placeholder="254712345678"
-                              value={phoneNumber}
-                              onChange={(e) => setPhoneNumber(e.target.value)}
-                              className="w-full bg-white border border-slate-200 rounded-2xl py-3 pl-12 pr-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 transition-all"
-                            />
-                          </div>
-                          <motion.button 
-                            whileTap={{ scale: 0.98 }}
-                            onClick={handleRequestPairingCode}
-                            disabled={!phoneNumber || isRequestingPairing}
-                            className="w-full py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-2xl hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-                          >
-                            {isRequestingPairing ? (
-                              <RefreshCw className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <LinkIcon className="w-4 h-4" />
-                            )}
-                            Generate Pairing Code
-                          </motion.button>
-
-                          {pairingError && (
-                            <motion.p 
-                              initial={{ opacity: 0, height: 0 }}
-                              animate={{ opacity: 1, height: 'auto' }}
-                              className="text-[10px] font-bold text-rose-500 bg-rose-50 p-3 rounded-xl border border-rose-100"
-                            >
-                              Error: {pairingError}
-                            </motion.p>
+                  ) : (
+                    <div className="space-y-8">
+                      <div className="flex flex-col items-center">
+                        <div className="p-4 bg-white border-4 border-slate-100 rounded-3xl mb-4 min-w-[200px] min-h-[200px] flex items-center justify-center">
+                          {activePairingSess.qr ? (
+                            <QRCodeSVG value={activePairingSess.qr} size={200} />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-slate-300">
+                              {activePairingSess.connected ? (
+                                  <Bot className="w-12 h-12 text-emerald-500 mb-2" />
+                              ) : (
+                                  <RefreshCw className="w-8 h-8 animate-spin mb-2" />
+                              )}
+                              <p className="text-[10px] uppercase font-bold tracking-widest">
+                                  {activePairingSess.connected ? 'Connected' : 'Initializing...'}
+                              </p>
+                            </div>
                           )}
                         </div>
-                      ) : (
-                        <div className="space-y-4">
-                          <div className="text-2xl font-mono font-black tracking-[0.2em] text-slate-800 bg-white px-6 py-4 rounded-2xl border border-slate-200 shadow-sm inline-block">
-                            {connection.pairingCode}
-                          </div>
-                          <div className="flex justify-center">
-                            <button 
-                              onClick={() => {
-                                setConnection(prev => ({ ...prev, pairingCode: null }));
-                                setPhoneNumber('');
-                              }}
-                              className="text-[10px] font-bold text-slate-400 uppercase hover:text-rose-500 transition-colors"
-                            >
-                              Reset and use another number
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                          {activePairingSess.qr ? 'Scan QR with WhatsApp' : 'Waiting for connection...'}
+                        </p>
+                      </div>
 
-                      <p className="text-[10px] text-slate-400 mt-6 leading-relaxed px-4 font-medium italic">
-                        Open WhatsApp {'>'} Linked Devices {'>'} Link with Phone Number Instead
-                      </p>
+                      <div className="relative">
+                        <div className="absolute inset-0 flex items-center">
+                          <div className="w-full border-t border-slate-100"></div>
+                        </div>
+                        <div className="relative flex justify-center text-xs uppercase font-bold text-slate-300">
+                          <span className="bg-white px-4 tracking-widest">OR</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-center">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Pairing Code Method</p>
+                        
+                        {!activePairingSess.pairingCode ? (
+                          <div className="space-y-4">
+                            <div className="relative">
+                              <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                              <input 
+                                type="text" 
+                                placeholder="254712345678"
+                                value={phoneNumber}
+                                onChange={(e) => setPhoneNumber(e.target.value)}
+                                className="w-full bg-white border border-slate-200 rounded-2xl py-3 pl-12 pr-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 transition-all"
+                              />
+                            </div>
+                            <motion.button 
+                              whileTap={{ scale: 0.98 }}
+                              onClick={handleRequestPairingCode}
+                              disabled={!phoneNumber || isRequestingPairing}
+                              className="w-full py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-2xl hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                            >
+                              {isRequestingPairing ? (
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <LinkIcon className="w-4 h-4" />
+                              )}
+                              Generate Pairing Code
+                            </motion.button>
+
+                            {pairingError && (
+                              <motion.p 
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                className="text-[10px] font-bold text-rose-500 bg-rose-50 p-3 rounded-xl border border-rose-100"
+                              >
+                                Error: {pairingError}
+                              </motion.p>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            <div className="text-2xl font-mono font-black tracking-[0.2em] text-slate-800 bg-white px-6 py-4 rounded-2xl border border-slate-200 shadow-sm inline-block">
+                              {activePairingSess.pairingCode}
+                            </div>
+                            <div className="flex justify-center">
+                              <button 
+                                onClick={() => {
+                                  setSessions(prev => prev.map(s => s.sessionId === pairingSessionId ? { ...s, pairingCode: null } : s));
+                                  setPhoneNumber('');
+                                }}
+                                className="text-[10px] font-bold text-slate-400 uppercase hover:text-rose-500 transition-colors"
+                              >
+                                Reset and use another number
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        <p className="text-[10px] text-slate-400 mt-6 leading-relaxed px-4 font-medium italic">
+                          Open WhatsApp {'>'} Linked Devices {'>'} Link with Phone Number Instead
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
+          );
+        })()}
       </AnimatePresence>
 
       <div className="flex flex-1 overflow-hidden">
@@ -594,83 +672,170 @@ export default function App() {
                 </div>
             </div>
           ) : activeTab === 'sessions' ? (
-            <div className="flex-1 max-w-4xl mx-auto w-full">
-                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden">
-                    <div className="bg-slate-900 p-10 text-white relative">
-                        <div className="flex items-center gap-6 relative z-10">
-                            <div className="w-20 h-20 bg-white/10 backdrop-blur-md rounded-[2rem] flex items-center justify-center border border-white/20">
-                                <Smartphone className="w-10 h-10" />
-                            </div>
-                            <div>
-                                <h2 className="text-2xl font-black uppercase tracking-tight">Active Bot Session</h2>
-                                <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mt-1">Multi-Device Authentication (Baileys)</p>
-                            </div>
-                            <div className="ml-auto">
-                                <span className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${connection.connected ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}`}>
-                                    {connection.connected ? 'Active Connection' : 'Disconnected'}
-                                </span>
-                            </div>
-                        </div>
-                        <div className="absolute top-0 right-0 p-10 opacity-10">
-                            <Database className="w-32 h-32" />
-                        </div>
-                    </div>
-
-                    <div className="p-10">
-                        {connection.connected ? (
-                            <div className="space-y-10">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Linked Identification</label>
-                                        <p className="text-lg font-black text-slate-800 tabular-nums tracking-wide">{connection.user?.id || '254XXXXXX'}</p>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Display Profile Name</label>
-                                        <p className="text-lg font-black text-slate-800 tracking-tight">{connection.user?.name || 'DANSCOM BOT'}</p>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Authentication Key Path</label>
-                                        <div className="flex items-center gap-2 text-slate-500 font-mono text-xs bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">
-                                            <Database className="w-3 h-3" />
-                                            firestore://auth_state/default_bot
-                                        </div>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Hardware Identifier</label>
-                                        <p className="text-xs font-bold text-slate-600 uppercase tracking-widest">Chrome 110 (Ubuntu Linux)</p>
-                                    </div>
-                                </div>
-
-                                <div className="pt-10 border-t border-slate-100 flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                                        <span className="text-[10px] font-black uppercase text-emerald-600 tracking-widest">WebSocket Secure Latency: 12ms</span>
-                                    </div>
-                                    <button 
-                                        onClick={handleRestart}
-                                        className="px-6 py-2.5 bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-rose-100 transition-all border border-rose-100"
-                                    >
-                                        Disconnect & Clear
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="text-center py-20 flex flex-col items-center">
-                                <div className="w-20 h-20 bg-slate-50 rounded-[2.5rem] flex items-center justify-center mb-6">
-                                    <Smartphone className="w-8 h-8 text-slate-300" />
-                                </div>
-                                <h3 className="text-lg font-black text-slate-400 uppercase tracking-tight">No Active Authenticated Session</h3>
-                                <p className="text-xs text-slate-400 mt-2 font-medium">Link your device via QR or Pairing Code to see session metadata.</p>
-                                <button 
-                                    onClick={() => setShowPairing(true)}
-                                    className="mt-8 px-8 py-3 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl hover:scale-105 active:scale-95 transition-all shadow-xl shadow-slate-200"
-                                >
-                                    Initiate Connection
-                                </button>
-                            </div>
-                        )}
-                    </div>
+            <div className="flex-grow flex flex-col gap-10 max-w-6xl mx-auto w-full pb-10">
+              {/* Overview Header */}
+              <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div>
+                  <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Multi-Account Dashboard</h2>
+                  <p className="text-sm text-slate-400 font-medium tracking-wide">Configure, link, and run multiple WhatsApp instances on your server</p>
                 </div>
+                <div className="p-1 px-4 bg-emerald-50 border border-emerald-100 rounded-full flex items-center gap-2 self-start md:self-auto">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                    {sessions.filter(s => s.connected).length} / {sessions.length} Active Bots
+                  </span>
+                </div>
+              </div>
+
+              {/* Account Creator & Active Inventory split */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Account Creator Column */}
+                <div className="lg:col-span-1 space-y-6">
+                  <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm p-8 space-y-6">
+                    <div className="flex items-center gap-3">
+                      <div className="p-3 bg-emerald-50 text-emerald-500 rounded-2xl">
+                        <Smartphone className="w-5 h-5" />
+                      </div>
+                      <h3 className="font-black text-slate-800 uppercase tracking-tight text-sm">Create New Bot</h3>
+                    </div>
+
+                    <p className="text-xs text-slate-400 leading-relaxed font-semibold">
+                      Deploy another parallel WhatsApp instance. Provide a simple lowercase key (no spaces / special characters).
+                    </p>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Bot Identifier</label>
+                        <input 
+                          type="text"
+                          placeholder="e.g. work_bot"
+                          value={newSessionName}
+                          onChange={(e) => setNewSessionName(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 transition-all"
+                        />
+                      </div>
+
+                      <button 
+                        onClick={handleCreateSession}
+                        disabled={!newSessionName.trim()}
+                        className="w-full py-3.5 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-2xl hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                      >
+                        Initialize Instance
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Grid list column */}
+                <div className="lg:col-span-2 space-y-6">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Deployed WhatsApp Bot Instances</h3>
+                  
+                  {sessions.length === 0 ? (
+                    <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm p-10 text-center">
+                      <Bot className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                      <p className="font-bold text-slate-500">No bot accounts found</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                      {sessions.map((sess) => {
+                        const isOriginal = sess.sessionId === 'default_bot';
+                        return (
+                          <div 
+                            key={sess.sessionId} 
+                            className={`bg-white rounded-[2rem] border shadow-sm p-6 flex flex-col justify-between transition-all hover:shadow-md ${
+                              sess.connected ? 'border-emerald-100 bg-emerald-50/10' : 'border-slate-100'
+                            }`}
+                          >
+                            <div>
+                              <div className="flex items-center justify-between mb-4">
+                                <span className={`text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full ${
+                                  isOriginal ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-600'
+                                }`}>
+                                  {isOriginal ? '🌐 Primary Bot' : '🤖 Sub-Account'}
+                                </span>
+                                
+                                <span className={`w-2.5 h-2.5 rounded-full ${
+                                  sess.connected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
+                                }`} />
+                              </div>
+
+                              <h4 className="text-base font-black text-slate-800 truncate uppercase mt-1">
+                                {isOriginal ? 'DANSCOM BOT' : sess.sessionId}
+                              </h4>
+                              
+                              {sess.connected ? (
+                                <div className="mt-4 space-y-2">
+                                  <div>
+                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Linked Account</p>
+                                    <p className="text-xs font-bold text-slate-700">{sess.user?.name || 'WhatsApp Client'}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Phone Number</p>
+                                    <p className="text-xs font-semibold text-slate-700 font-mono tabular-nums">
+                                      {sess.user?.id ? sess.user.id.split(':')[0] : 'Connected'}
+                                    </p>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-slate-400 font-semibold mt-4">
+                                  Inactive/Disconnected account. Needs device linking authentication.
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="mt-8 pt-4 border-t border-slate-50 flex items-center gap-3">
+                              {sess.connected ? (
+                                <>
+                                  <button 
+                                    onClick={() => {
+                                      setPairingSessionId(sess.sessionId);
+                                      handleRestart();
+                                    }}
+                                    className="flex-1 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-[10px] font-bold uppercase tracking-widest text-slate-600 border border-slate-200 transition-colors"
+                                  >
+                                    Restart
+                                  </button>
+                                  {!isOriginal && (
+                                    <button 
+                                      onClick={() => handleDeleteSession(sess.sessionId)}
+                                      className="py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-[10px] font-bold uppercase tracking-widest text-rose-500 border border-rose-100 transition-colors"
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  <button 
+                                    onClick={() => {
+                                      setPairingSessionId(sess.sessionId);
+                                      setPhoneNumber('');
+                                      setPairingError(null);
+                                      setShowPairing(true);
+                                    }}
+                                    className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-[10px] font-black uppercase tracking-widest text-white transition-colors flex items-center justify-center gap-2"
+                                  >
+                                    <LinkIcon className="w-3.5 h-3.5" />
+                                    Link Account
+                                  </button>
+                                  {!isOriginal && (
+                                    <button 
+                                      onClick={() => handleDeleteSession(sess.sessionId)}
+                                      className="py-2.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-[10px] font-bold uppercase tracking-widest text-rose-500 border border-rose-100 transition-colors"
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           ) : activeTab === 'console' ? (
             <div className="flex-1 flex flex-col bg-slate-950 rounded-[2.5rem] overflow-hidden border border-slate-800 shadow-2xl">

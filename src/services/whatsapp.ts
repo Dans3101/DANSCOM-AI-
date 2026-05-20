@@ -37,204 +37,396 @@ const getMakeWASocket = (): any => {
 
 const makeWASocket = getMakeWASocket();
 
+export interface SessionInfo {
+    sessionId: string;
+    sock: WASocket | null;
+    qr: string | null;
+    pairingCode: string | null;
+    pairingNumber: string | null;
+    isInitializing: boolean;
+    user: { id: string; name: string } | null;
+}
+
+const sessions = new Map<string, SessionInfo>();
 let sock: WASocket | null = null;
-let currentQr: string | null = null;
-let currentPairingCode: string | null = null;
-let currentPairingNumber: string | null = null;
-let isInitializing = false;
 
-export const getConnectionState = () => ({
-    qr: currentQr,
-    pairingCode: currentPairingCode,
-    connected: !!sock?.user,
-    pairingNumber: currentPairingNumber,
-    user: sock?.user ? {
-        id: sock.user.id,
-        name: sock.user.name || 'DANSCOM Bot'
-    } : null
-});
+export const getExistingSessions = async (): Promise<string[]> => {
+    const sessionIds = new Set<string>();
+    sessionIds.add('default_bot'); // always ensure design compatibility
+    
+    const isReady = await firestoreReadyPromise;
+    if (sessionsDb && isReady) {
+        try {
+            const snapshot = await sessionsDb.get();
+            snapshot.docs.forEach(doc => {
+                const id = doc.id;
+                if (id.endsWith('_creds')) {
+                    const sessId = id.substring(0, id.length - 6);
+                    if (sessId && sessId !== 'default_bot') sessionIds.add(sessId);
+                }
+            });
+        } catch (e) {
+            console.error('Failed to retrieve firestore sessions:', e);
+        }
+    } else {
+        try {
+            const fs = await import('fs');
+            if (fs.existsSync('.')) {
+                const files = fs.readdirSync('.');
+                files.forEach(f => {
+                    if (f.startsWith('auth_info_baileys_')) {
+                        const sessId = f.replace('auth_info_baileys_', '');
+                        if (sessId && sessId !== 'default_bot') sessionIds.add(sessId);
+                    }
+                });
+            }
+        } catch (e) {}
+    }
+    return Array.from(sessionIds);
+};
 
-export const requestPairingCode = async (number: string) => {
-    if (!sock) {
-        console.log('Socket not found, starting WhatsApp...');
-        await startWhatsApp();
+export const getConnectionState = () => {
+    const def = sessions.get('default_bot');
+    if (def) {
+        return {
+            qr: def.qr,
+            pairingCode: def.pairingCode,
+            connected: !!def.sock?.user,
+            pairingNumber: def.pairingNumber,
+            user: def.sock?.user ? {
+                id: def.sock.user.id,
+                name: def.sock.user.name || 'DANSCOM Bot'
+            } : null
+        };
+    }
+    return {
+        qr: null,
+        pairingCode: null,
+        connected: false,
+        pairingNumber: null,
+        user: null
+    };
+};
+
+export const getSessionsState = () => {
+    const list: any[] = [];
+    sessions.forEach((sess) => {
+        list.push({
+            sessionId: sess.sessionId,
+            qr: sess.qr,
+            pairingCode: sess.pairingCode,
+            connected: !!sess.sock?.user,
+            pairingNumber: sess.pairingNumber,
+            user: sess.sock?.user ? {
+                id: sess.sock.user.id,
+                name: sess.sock.user.name || 'DANSCOM Bot'
+            } : null
+        });
+    });
+    return list;
+};
+
+export const requestPairingCode = async (number: string, sessionId: string = 'default_bot') => {
+    let sess = sessions.get(sessionId);
+    if (!sess) {
+        await startWhatsAppSession(sessionId);
+        sess = sessions.get(sessionId);
     }
     
-    // Wait a bit for socket to be ready
     let retry = 0;
-    while (!sock && retry < 10) {
+    while ((!sess || !sess.sock) && retry < 15) {
         await new Promise(resolve => setTimeout(resolve, 500));
+        sess = sessions.get(sessionId);
         retry++;
     }
 
-    if (!sock) throw new Error('WhatsApp socket failed to initialize');
-    if (sock.user) throw new Error('Already connected');
+    if (!sess || !sess.sock) throw new Error('WhatsApp socket failed to initialize');
+    if (sess.sock.user) throw new Error('Already connected');
     
-    currentPairingNumber = number.replace(/[^0-9]/g, '');
-    console.log(`[Pairing] Requesting code for: ${currentPairingNumber}`);
+    sess.pairingNumber = number.replace(/[^0-9]/g, '');
+    console.log(`[Pairing ${sessionId}] Requesting code for: ${sess.pairingNumber}`);
     
     try {
-        const code = await sock.requestPairingCode(currentPairingNumber);
-        currentPairingCode = code || null;
-        console.log(`[Pairing] Code received: ${code}`);
+        const code = await sess.sock.requestPairingCode(sess.pairingNumber);
+        sess.pairingCode = code || null;
+        console.log(`[Pairing ${sessionId}] Code received: ${code}`);
         return code;
     } catch (error: any) {
-        console.error('[Pairing] Error:', error);
+        console.error(`[Pairing ${sessionId}] Error:`, error);
         throw new Error(error.message || 'Failed to request pairing code. Try again in 10 seconds.');
     }
 };
 
 export const restartWhatsApp = async () => {
-    console.log('>> Force restarting WhatsApp connection...');
-    isInitializing = false;
-    currentQr = null;
-    currentPairingCode = null;
-    if (sock) {
+    console.log('>> Force restarting all WhatsApp connections...');
+    for (const sessId of sessions.keys()) {
         try {
-            // Remove listeners first to avoid double reconnects
-            sock.ev.removeAllListeners('connection.update');
-            sock.end(undefined);
+            await restartWhatsAppSession(sessId);
         } catch (e) {}
     }
-    sock = null;
-    return startWhatsApp();
 };
 
-export const startWhatsApp = async () => {
-    if (isInitializing) {
-        console.log('>> Socket already initializing, skipping...');
-        return sock;
-    }
-    isInitializing = true;
-
-  try {
-    console.log('>> Initializing DANSCOM WhatsApp Bot...');
-    
-    let version: [number, number, number] = [2, 3000, 1015942434]; // Robust fallback
-    try {
-        const latest = await fetchLatestBaileysVersion().catch(() => null);
-        if (latest?.version) {
-            version = latest.version;
-            console.log(`>> Using Baileys v${version.join('.')}, isLatest: ${latest.isLatest}`);
-        } else {
-            console.log(`>> Using fallback Baileys v${version.join('.')}`);
+export const restartWhatsAppSession = async (sessionId: string) => {
+    console.log(`>> Force restarting WhatsApp connection for [${sessionId}]...`);
+    const sess = sessions.get(sessionId);
+    if (sess) {
+        sess.isInitializing = false;
+        sess.qr = null;
+        sess.pairingCode = null;
+        if (sess.sock) {
+            try {
+                sess.sock.ev.removeAllListeners('connection.update');
+                sess.sock.end(undefined);
+            } catch (e) {}
         }
-    } catch (err) {
-        console.warn('>> Failed to fetch latest Baileys version, using fallback:', err);
+        sess.sock = null;
     }
+    return startWhatsAppSession(sessionId);
+};
 
-    let authState;
-    
-    try {
-        const isReady = await firestoreReadyPromise;
-        if (sessionsDb && isReady) {
-            console.log('>> Using Firestore for session storage');
-            authState = await useFirestoreAuthState('default_bot');
-        } else {
-            console.log('>> Using local file system for session storage');
-            authState = await useMultiFileAuthState('auth_info_baileys');
+export const deleteWhatsAppSession = async (sessionId: string) => {
+    console.log(`>> Deleting WhatsApp session [${sessionId}]...`);
+    const sess = sessions.get(sessionId);
+    if (sess) {
+        sess.isInitializing = false;
+        if (sess.sock) {
+            try {
+                sess.sock.ev.removeAllListeners('connection.update');
+                sess.sock.end(new Error('Session deleted'));
+            } catch (e) {}
         }
-    } catch (error) {
-        console.error('>> Auth state initialization failed:', error);
-        authState = await useMultiFileAuthState('auth_info_baileys');
+        sessions.delete(sessionId);
     }
-
-    const { state, saveCreds } = authState;
-
-    // Cleanup old socket if exists
-    if (sock) {
+    
+    const isReady = await firestoreReadyPromise;
+    if (sessionsDb && isReady) {
         try {
-            sock.ev.removeAllListeners('connection.update');
-            sock.ev.removeAllListeners('creds.update');
-            sock.ev.removeAllListeners('messages.upsert');
+            const snapshot = await sessionsDb.get();
+            const batch = sessionsDb.firestore.batch();
+            let count = 0;
+            snapshot.docs.forEach(doc => {
+                if (doc.id.startsWith(`${sessionId}_`)) {
+                    batch.delete(doc.ref);
+                    count++;
+                }
+            });
+            if (count > 0) {
+                await batch.commit();
+            }
+        } catch (e) {
+            console.error(`Failed to clear firestore session ${sessionId}:`, e);
+        }
+    } else {
+        try {
+            const fs = await import('fs');
+            const dir = `auth_info_baileys_${sessionId}`;
+            if (fs.existsSync(dir)) {
+                fs.rmSync(dir, { recursive: true, force: true });
+            }
         } catch (e) {}
     }
+};
 
-    sock = makeWASocket({
-        version,
-        logger: pino({ level: 'silent' }),
-        printQRInTerminal: true,
-        auth: state,
-        // Using a more standard browser setting for pairing code compatibility
-        browser: ['Ubuntu', 'Chrome', '110.0.5563.147'],
-        generateHighQualityLinkPreview: true,
-        syncFullHistory: false,
-        connectTimeoutMs: 60000,
-        keepAliveIntervalMs: 15000,
-    });
+export const startWhatsAppSession = async (sessionId: string) => {
+    let sess = sessions.get(sessionId);
+    if (!sess) {
+        sess = {
+            sessionId,
+            sock: null,
+            qr: null,
+            pairingCode: null,
+            pairingNumber: null,
+            isInitializing: false,
+            user: null
+        };
+        sessions.set(sessionId, sess);
+    }
 
-    sock.ev.on('creds.update', saveCreds);
+    if (sess.isInitializing) {
+        console.log(`>> Socket [${sessionId}] already initializing, skipping...`);
+        return sess.sock;
+    }
+    sess.isInitializing = true;
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+    try {
+        console.log(`>> Initializing DANSCOM WhatsApp Bot [Session: ${sessionId}]...`);
         
-        if (qr) {
-            currentQr = qr;
-            console.log('>> NEW QR Code generated');
-            QRCode.generate(qr, { small: true });
+        let version: [number, number, number] = [2, 3000, 1015942434];
+        try {
+            const latest = await fetchLatestBaileysVersion().catch(() => null);
+            if (latest?.version) {
+                version = latest.version;
+                console.log(`>> Using Baileys v${version.join('.')}, isLatest: ${latest.isLatest} [Session: ${sessionId}]`);
+            } else {
+                console.log(`>> Using fallback Baileys v${version.join('.')} [Session: ${sessionId}]`);
+            }
+        } catch (err) {
+            console.warn('>> Failed to fetch latest Baileys version, using fallback:', err);
         }
 
-        if (connection === 'close') {
-            currentQr = null;
-            currentPairingCode = null;
-            const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        let authState;
+        try {
+            const isReady = await firestoreReadyPromise;
+            if (sessionsDb && isReady) {
+                console.log(`>> Using Firestore for session storage [Session: ${sessionId}]`);
+                authState = await useFirestoreAuthState(sessionId);
+            } else {
+                console.log(`>> Using local file system for session storage [Session: ${sessionId}]`);
+                authState = await useMultiFileAuthState(`auth_info_baileys_${sessionId}`);
+            }
+        } catch (error) {
+            console.error('>> Auth state initialization failed:', error);
+            authState = await useMultiFileAuthState(`auth_info_baileys_${sessionId}`);
+        }
+
+        const { state, saveCreds } = authState;
+
+        if (sess.sock) {
+            try {
+                sess.sock.ev.removeAllListeners('connection.update');
+                sess.sock.ev.removeAllListeners('creds.update');
+                sess.sock.ev.removeAllListeners('messages.upsert');
+            } catch (e) {}
+        }
+
+        const currentSock = makeWASocket({
+            version,
+            logger: pino({ level: 'silent' }),
+            printQRInTerminal: true,
+            auth: state,
+            browser: ['Ubuntu', 'Chrome', '110.0.5563.147'],
+            generateHighQualityLinkPreview: true,
+            syncFullHistory: false,
+            connectTimeoutMs: 60000,
+            keepAliveIntervalMs: 15000,
+        });
+
+        sess.sock = currentSock;
+        
+        // For backwards compatibility, expose default bot socket on export var
+        if (sessionId === 'default_bot') {
+            sock = currentSock;
+        }
+
+        currentSock.ev.on('creds.update', saveCreds);
+
+        currentSock.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect, qr } = update;
             
-            console.log(`>> Connection closed (Reason: ${statusCode}). Reconnecting: ${shouldReconnect}`);
-            
-            if (statusCode === DisconnectReason.loggedOut) {
-                console.log('>> Session logged out. Clearing data...');
-                const isReady = await firestoreReadyPromise;
-                if (sessionsDb && isReady) {
+            if (qr) {
+                sess!.qr = qr;
+                console.log(`>> NEW QR Code generated for session: [${sessionId}]`);
+                QRCode.generate(qr, { small: true });
+            }
+
+            if (connection === 'close') {
+                sess!.qr = null;
+                sess!.pairingCode = null;
+                const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                
+                console.log(`>> Connection closed for session: [${sessionId}] (Reason: ${statusCode}). Reconnecting: ${shouldReconnect}`);
+                
+                if (statusCode === DisconnectReason.loggedOut) {
+                    console.log(`>> Session [${sessionId}] logged out. Clearing data...`);
+                    const isReady = await firestoreReadyPromise;
+                    if (sessionsDb && isReady) {
+                        try {
+                            const snapshot = await sessionsDb.get();
+                            const batch = sessionsDb.firestore.batch();
+                            let count = 0;
+                            snapshot.docs.forEach(doc => {
+                                if (doc.id.startsWith(`${sessionId}_`)) {
+                                    batch.delete(doc.ref);
+                                    count++;
+                                }
+                            });
+                            if (count > 0) {
+                                await batch.commit();
+                            }
+                        } catch (e) {
+                            console.error(`Failed to clear firestore session: ${sessionId}`, e);
+                        }
+                    } else {
+                        try {
+                            const fs = await import('fs');
+                            const dir = `auth_info_baileys_${sessionId}`;
+                            if (fs.existsSync(dir)) {
+                                fs.rmSync(dir, { recursive: true, force: true });
+                            }
+                        } catch (e) {}
+                    }
+                }
+
+                if (shouldReconnect) {
+                    setTimeout(() => startWhatsAppSession(sessionId), 5000);
+                }
+            } else if (connection === 'open') {
+                sess!.qr = null;
+                sess!.pairingCode = null;
+                console.log(`>> DANSCOM connected successfully! [Session: ${sessionId}]`);
+                startAutoBio(currentSock);
+
+                // Send congratulations message directly in user's DM
+                if (currentSock.user?.id) {
+                    const userJid = currentSock.user.id.split(':')[0] + '@s.whatsapp.net';
                     try {
-                        const snapshot = await sessionsDb.where('__name__', '>=', 'default_bot_').get();
-                        const batch = sessionsDb.firestore.batch();
-                        snapshot.docs.forEach(doc => batch.delete(doc.ref));
-                        await batch.commit();
-                    } catch (e) {
-                        console.error('Failed to clear firestore session:', e);
+                        const welcomeText = `🎉 *Congratulations!*\n\nYour *DANSCOM WhatsApp Bot* (Session: \`${sessionId}\`) has been successfully connected and is now fully active!\n\n🤖 *Bot Profile:* ${currentSock.user.name || 'DANSCOM Bot'}\n📱 *Number:* ${currentSock.user.id.split(':')[0]}\n\nEnjoy using your automated features! Keep this chat open if you want to test commands directly! Type /menu or .menu.`;
+                        await currentSock.sendMessage(userJid, {
+                            text: welcomeText
+                        });
+                        console.log(`>> Congrats welcome message sent to ${userJid}`);
+                    } catch (err: any) {
+                        console.error('>> Failed to send connection congratulations message:', err.message);
                     }
                 }
             }
+        });
 
-            if (shouldReconnect) {
-                setTimeout(() => startWhatsApp(), 5000);
+        currentSock.ev.on('messages.upsert', async (m) => {
+            if (m.type === 'notify') {
+                await handleMessages(currentSock, m);
             }
-        } else if (connection === 'open') {
-            currentQr = null;
-            currentPairingCode = null;
-            console.log('>> DANSCOM connected successfully!');
-            startAutoBio(sock!);
-        }
-    });
+        });
 
-    sock.ev.on('messages.upsert', async (m) => {
-        if (m.type === 'notify') {
-            await handleMessages(sock!, m);
-        }
-    });
-
-    sock.ev.on('call', async (calls) => {
-        if (await isEnabled('anticall')) {
-            for (const call of calls) {
-                if (call.status === 'offer') {
-                    console.log(`Rejecting call from ${call.from}`);
-                    await sock?.rejectCall(call.id, call.from);
-                    await sock?.sendMessage(call.from, { 
-                        text: '⚠️ *Automatic Call Rejection*\nI am currently in bot mode and cannot receive calls. Please send a message instead.' 
-                    });
+        currentSock.ev.on('call', async (calls) => {
+            if (await isEnabled('anticall')) {
+                for (const call of calls) {
+                    if (call.status === 'offer') {
+                        console.log(`Rejecting call from ${call.from} [Session: ${sessionId}]`);
+                        await currentSock.rejectCall(call.id, call.from);
+                        await currentSock.sendMessage(call.from, { 
+                            text: '⚠️ *Automatic Call Rejection*\nI am currently in bot mode and cannot receive calls. Please send a message instead.' 
+                        });
+                    }
                 }
             }
+        });
+
+    } catch (err: any) {
+        console.error(`>> WhatsApp Bot startup failed for [${sessionId}]:`, err.message);
+    } finally {
+        sess.isInitializing = false;
+    }
+
+    return sess.sock;
+};
+
+export const startWhatsApp = async () => {
+    const list = await getExistingSessions();
+    console.log('>> Loading existing WhatsApp sessions from database/storage:', list);
+    for (const sessId of list) {
+        try {
+            await startWhatsAppSession(sessId);
+        } catch (e: any) {
+            console.error(`Failed to start session ${sessId}:`, e.message);
         }
-    });
-
-  } catch (err: any) {
-    console.error('>> WhatsApp Bot startup failed:', err.message);
-  } finally {
-    isInitializing = false;
-  }
-
-  return sock;
+    }
+    // Always guarantee 'default_bot' runs
+    if (!sessions.has('default_bot')) {
+        await startWhatsAppSession('default_bot');
+    }
+    return sessions.get('default_bot')?.sock || null;
 };
 
 export { sock };
