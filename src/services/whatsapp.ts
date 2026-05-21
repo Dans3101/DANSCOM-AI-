@@ -8,7 +8,7 @@ import { Boom } from '@hapi/boom';
 import pino from 'pino';
 import QRCode from 'qrcode-terminal';
 import { useFirestoreAuthState } from '../database/firestoreStore.js';
-import { sessionsDb, firestoreReadyPromise } from '../database/firebase.js';
+import { sessionsDb, firestoreReadyPromise, getIsFirestoreUsable } from '../database/firebase.js';
 import { handleMessages } from '../handlers/messageHandler.js';
 import { startAutoBio } from './autobio.js';
 import { isEnabled } from '../utils/settings.js';
@@ -55,18 +55,22 @@ export const getExistingSessions = async (): Promise<string[]> => {
     sessionIds.add('default_bot'); // always ensure design compatibility
     
     const isReady = await firestoreReadyPromise;
-    if (sessionsDb && isReady) {
+    if (sessionsDb && isReady && getIsFirestoreUsable()) {
         try {
-            const snapshot = await sessionsDb.get();
-            snapshot.docs.forEach(doc => {
+            const fetchPromise = sessionsDb.get();
+            const timeoutPromise = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Firestore sessions fetch timed out (3s)')), 3000)
+            );
+            const snapshot = await Promise.race([fetchPromise, timeoutPromise]) as any;
+            snapshot.docs.forEach((doc: any) => {
                 const id = doc.id;
                 if (id.endsWith('_creds')) {
                     const sessId = id.substring(0, id.length - 6);
                     if (sessId && sessId !== 'default_bot') sessionIds.add(sessId);
                 }
             });
-        } catch (e) {
-            console.error('Failed to retrieve firestore sessions:', e);
+        } catch (e: any) {
+            console.error('Failed to retrieve firestore sessions:', e.message || e);
         }
     } else {
         try {
@@ -449,8 +453,8 @@ const startConnectionMonitor = () => {
             if (!def) {
                 console.log('[Connection Monitor] default_bot session is missing, bringing it online...');
                 await startWhatsAppSession('default_bot').catch(() => {});
-            } else if (!def.sock?.user && !def.isInitializing) {
-                console.log('[Connection Monitor] default_bot is currently offline/disconnected, automatically reviving...');
+            } else if (!def.sock && !def.isInitializing) {
+                console.log('[Connection Monitor] default_bot is currently uninitialized, automatically reviving...');
                 await startWhatsAppSession('default_bot').catch(() => {});
             }
 
@@ -462,8 +466,8 @@ const startConnectionMonitor = () => {
                 if (!sess) {
                     console.log(`[Connection Monitor] Saved session [${sessId}] was missing from memory. Auto-loading...`);
                     await startWhatsAppSession(sessId).catch(() => {});
-                } else if (!sess.sock?.user && !sess.isInitializing) {
-                    console.log(`[Connection Monitor] Session [${sessId}] has disconnected/gone offline. Reviving...`);
+                } else if (!sess.sock && !sess.isInitializing) {
+                    console.log(`[Connection Monitor] Session [${sessId}] socket is missing from memory. Reviving...`);
                     await startWhatsAppSession(sessId).catch(() => {});
                 }
             }
