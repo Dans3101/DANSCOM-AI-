@@ -10,7 +10,21 @@ const parsePrivateKey = (key: string | undefined): string => {
   } else if (cleanKey.startsWith("'") && cleanKey.endsWith("'")) {
     cleanKey = cleanKey.slice(1, -1);
   }
-  return cleanKey.replace(/\\n/g, '\n');
+  
+  // Convert literal \n escapes to real newlines
+  cleanKey = cleanKey.replace(/\\n/g, '\n').trim();
+  
+  // If a swallowed backslash in a leading \n left a stray 'n' before 'MII', strip it
+  if (cleanKey.startsWith('nMII')) {
+    cleanKey = cleanKey.slice(1);
+  }
+  
+  // Wrap in standard PEM headers if they are missing
+  if (!cleanKey.startsWith('-----')) {
+    cleanKey = `-----BEGIN PRIVATE KEY-----\n${cleanKey}\n-----END PRIVATE KEY-----`;
+  }
+  
+  return cleanKey;
 };
 
 export const config = {

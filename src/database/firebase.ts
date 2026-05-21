@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 
 export let isFirestoreUsable = false;
+export const getIsFirestoreUsable = () => isFirestoreUsable;
 
 let firestoreDatabaseId: string | undefined;
 try {
@@ -21,14 +22,20 @@ try {
 if (!admin.apps.length) {
   try {
     if (config.firebase.projectId && config.firebase.privateKey && config.firebase.clientEmail) {
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId: config.firebase.projectId,
-          privateKey: config.firebase.privateKey,
-          clientEmail: config.firebase.clientEmail,
-        }),
-      });
-      console.log('Firebase Admin initialized with provided credentials');
+      try {
+        admin.initializeApp({
+          credential: admin.credential.cert({
+            projectId: config.firebase.projectId,
+            privateKey: config.firebase.privateKey,
+            clientEmail: config.firebase.clientEmail,
+          }),
+        });
+        console.log('Firebase Admin initialized with provided credentials');
+      } catch (certError: any) {
+        console.warn('Firebase Admin cert initialization failed, trying default credentials:', certError.message);
+        admin.initializeApp();
+        console.log('Firebase Admin initialized with environment credentials after cert fallback');
+      }
     } else {
       // In AI Studio, this will use the internal project credentials automatically
       admin.initializeApp();

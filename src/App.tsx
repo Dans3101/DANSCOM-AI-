@@ -50,6 +50,7 @@ export default function App() {
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isRestarting, setIsRestarting] = useState(false);
+  const [dbStatus, setDbStatus] = useState<{ isFirestoreUsable: boolean; projectId: string | null; clientEmail: string | null } | null>(null);
 
   const [stats, setStats] = useState({ totalCommands: 12400, activeUsers: 842, uptime: 0, latency: 48 });
   const [plugins, setPlugins] = useState<any[]>([]);
@@ -79,13 +80,32 @@ export default function App() {
             setConnection(data);
             if (data.connected) {
                 setStatus('Online (DANSCOM Running)');
-            } else {
-                safeFetch('/api/health')
-                  .then(hData => setStatus(hData.status))
-                  .catch(() => setStatus('Connecting...'));
             }
           })
           .catch(() => setStatus('Connection Error'));
+
+        safeFetch('/api/health')
+          .then(hData => {
+            setDbStatus({
+              isFirestoreUsable: hData.isFirestoreUsable,
+              projectId: hData.projectId,
+              clientEmail: hData.clientEmail
+            });
+            setConnection(prev => {
+              if (!prev.connected) {
+                setStatus(hData.status);
+              }
+              return prev;
+            });
+          })
+          .catch(() => {
+            setConnection(prev => {
+              if (!prev.connected) {
+                setStatus('Connecting...');
+              }
+              return prev;
+            });
+          });
 
         safeFetch('/api/sessions')
           .then(data => {
@@ -493,6 +513,31 @@ export default function App() {
         <main className="flex-1 p-8 overflow-y-auto flex flex-col gap-8">
           {activeTab === 'dashboard' ? (
             <>
+              {/* DATABASE STORAGE STATE WARNING */}
+              {dbStatus && !dbStatus.isFirestoreUsable && (
+                <div className="bg-amber-50/75 border border-amber-200/50 rounded-[2rem] p-6 flex flex-col md:flex-row items-start gap-4 shadow-sm">
+                  <div className="p-3 bg-amber-100/80 rounded-2xl text-amber-600 self-start md:self-center">
+                    <Database className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                      ⚠️ Persistence Offline (Using Volatile Local Storage)
+                    </h4>
+                    <p className="text-xs text-slate-600 leading-relaxed max-w-4xl">
+                      The WhatsApp bot is currently running on volatile local container files. When your hosting provider container (Render / Cloud Run) goes to sleep or restarts, <strong>all active sessions will be erased</strong>, and the bot will become inactive.
+                    </p>
+                    <div className="text-xs text-slate-700 bg-amber-100/30 p-4 rounded-2xl border border-amber-200/30 mt-2 space-y-2">
+                      <p className="font-semibold text-slate-800">💡 How to keep your bot active permanently:</p>
+                      <p>
+                        In your App Settings, change the <strong>FIREBASE_CLIENT_EMAIL</strong> variable from <code className="bg-amber-100/60 px-1.5 py-0.5 rounded text-amber-950 font-mono text-[11px]">Musembidaniel615@gmail.com</code> (your personal email) to your Firebase Service Account email (e.g. <code className="bg-amber-100/60 px-1.5 py-0.5 rounded text-amber-950 font-mono text-[11px]">firebase-adminsdk-xxxxx@{dbStatus.projectId || 'danscom-9b64f'}.iam.gserviceaccount.com</code>).
+                      </p>
+                      <p className="text-[10px] text-slate-500">
+                        Active Database ID: <span className="font-mono font-bold text-slate-600">{dbStatus.projectId || 'danscom-9b64f'}</span> | Status: <span className="text-rose-600 font-bold">Unauthenticated (Invalid Email)</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
               {/* DANSCOM COMMANDS & IMAGERY REFERENCE */}
               <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col md:flex-row items-stretch">
                 <div className="md:w-2/5 relative min-h-[250px] bg-slate-900 overflow-hidden">

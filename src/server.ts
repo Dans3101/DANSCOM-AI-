@@ -14,7 +14,7 @@ import {
   restartWhatsAppSession,
   restartWhatsApp
 } from './services/whatsapp.js';
-import { analyticsDb, usersDb, isFirestoreUsable } from './database/firebase.js';
+import { analyticsDb, usersDb, getIsFirestoreUsable } from './database/firebase.js';
 
 async function bootstrap() {
   const app = express();
@@ -55,7 +55,12 @@ async function bootstrap() {
 
   // API Health check
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'Online (DANSCOM Running)' });
+    res.json({ 
+      status: 'Online (DANSCOM Running)',
+      isFirestoreUsable: getIsFirestoreUsable(),
+      projectId: config.firebase.projectId || null,
+      clientEmail: config.firebase.clientEmail || null
+    });
   });
 
   app.get('/api/connection', (req, res) => {
@@ -64,7 +69,7 @@ async function bootstrap() {
 
   app.get('/api/stats', async (req, res) => {
     try {
-        if (!isFirestoreUsable || !analyticsDb) {
+        if (!getIsFirestoreUsable() || !analyticsDb) {
             return res.json({ 
                 totalCommands: 0, 
                 activeUsers: 1, 
