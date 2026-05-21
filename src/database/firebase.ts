@@ -55,12 +55,18 @@ export const db = admin.apps.length
 export const firestoreReadyPromise = (async () => {
   if (!db) return false;
   try {
-    await db.listCollections();
+    // Implement a 3-second timeout for the initial Firestore network check
+    const listCollectionsPromise = db.listCollections();
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Firestore network check timed out (3s)')), 3000)
+    );
+    await Promise.race([listCollectionsPromise, timeoutPromise]);
+    
     isFirestoreUsable = true;
     console.log('Firestore is ready and accessible with database ID:', firestoreDatabaseId || '(default)');
     return true;
   } catch (err: any) {
-    console.warn('Firestore is initialized but API might be disabled or unreachable:', err.message);
+    console.warn('Firestore is initialized but API/credentials might be disabled or unreachable:', err.message);
     isFirestoreUsable = false;
     return false;
   }

@@ -253,7 +253,11 @@ export const startWhatsAppSession = async (sessionId: string) => {
         
         let version: [number, number, number] = [2, 3000, 1015942434];
         try {
-            const latest = await fetchLatestBaileysVersion().catch(() => null);
+            const fetchPromise = fetchLatestBaileysVersion();
+            const timeoutPromise = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Baileys version fetch timed out (2s)')), 2000)
+            );
+            const latest = await Promise.race([fetchPromise, timeoutPromise]).catch(() => null);
             if (latest?.version) {
                 version = latest.version;
                 console.log(`>> Using Baileys v${version.join('.')}, isLatest: ${latest.isLatest} [Session: ${sessionId}]`);
@@ -261,7 +265,7 @@ export const startWhatsAppSession = async (sessionId: string) => {
                 console.log(`>> Using fallback Baileys v${version.join('.')} [Session: ${sessionId}]`);
             }
         } catch (err) {
-            console.warn('>> Failed to fetch latest Baileys version, using fallback:', err);
+            console.warn('>> Failed to fetch latest Baileys version within timeout, using fallback:', err);
         }
 
         let authState;

@@ -1,7 +1,8 @@
-import { contactsDb } from '../database/firebase.js';
+import { contactsDb, getIsFirestoreUsable } from '../database/firebase.js';
 import admin from 'firebase-admin';
 
 export const saveContact = async (jid: string, name?: string) => {
+    if (!getIsFirestoreUsable() || !contactsDb) return;
     try {
         await contactsDb.doc(jid).set({
             jid,
