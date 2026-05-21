@@ -34,42 +34,48 @@ export const useFirestoreAuthState = async (sessionId: string): Promise<{ state:
 
   const creds: AuthenticationCreds = (await readData('creds')) || initAuthCreds();
 
-  return {
-    state: {
-      creds,
-      keys: {
-        get: async (type, ids) => {
-          const data: { [id: string]: SignalDataTypeMap[typeof type] } = {};
-          await Promise.all(
-            ids.map(async (id) => {
-              let value = await readData(`${type}-${id}`);
-              if (type === 'app-state-sync-key' && value) {
-                value = proto.Message.AppStateSyncKeyData.fromObject(value);
-              }
-              data[id] = value;
-            })
-          );
-          return data;
-        },
-        set: async (data) => {
-          const tasks: Promise<void>[] = [];
-          for (const category in data) {
-            for (const id in data[category as keyof SignalDataTypeMap]) {
-              const value = data[category as keyof SignalDataTypeMap]![id];
-              const key = `${category}-${id}`;
-              if (value) {
-                tasks.push(writeData(value, key));
-              } else {
-                tasks.push(removeData(key));
-              }
+  const state: AuthenticationState = {
+    creds,
+    keys: {
+      get: async (type, ids) => {
+        const data: { [id: string]: SignalDataTypeMap[typeof type] } = {};
+        await Promise.all(
+          ids.map(async (id) => {
+            let value = await readData(`${type}-${id}`);
+            if (type === 'app-state-sync-key' && value) {
+              value = proto.Message.AppStateSyncKeyData.fromObject(value);
+            }
+            data[id] = value;
+          })
+        );
+        return data;
+      },
+      set: async (data) => {
+        const tasks: Promise<void>[] = [];
+        for (const category in data) {
+          for (const id in data[category as keyof SignalDataTypeMap]) {
+            const value = data[category as keyof SignalDataTypeMap]![id];
+            const key = `${category}-${id}`;
+            if (value) {
+              tasks.push(writeData(value, key));
+            } else {
+              tasks.push(removeData(key));
             }
           }
-          await Promise.all(tasks);
         }
+        await Promise.all(tasks);
       }
-    },
+    }
+  };
+
+  return {
+    state,
     saveCreds: async () => {
-      await writeData(creds, 'creds');
+      try {
+        await writeData(state.creds, 'creds');
+      } catch (err: any) {
+        console.error('[FirestoreStore] saveCreds failed:', err.message);
+      }
     }
   };
 };

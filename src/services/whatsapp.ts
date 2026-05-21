@@ -426,7 +426,47 @@ export const startWhatsApp = async () => {
     if (!sessions.has('default_bot')) {
         await startWhatsAppSession('default_bot');
     }
+
+    // Start background Connection Monitor Keepalive
+    startConnectionMonitor();
+
     return sessions.get('default_bot')?.sock || null;
+};
+
+// Defensive Connection Monitor to keep bot active all the time
+let connectionMonitorInterval: any = null;
+const startConnectionMonitor = () => {
+    if (connectionMonitorInterval) return;
+    console.log('>> Initiating DANSCOM Connection Monitor kept-alive daemon (30s checks)');
+    connectionMonitorInterval = setInterval(async () => {
+        try {
+            // 1. Maintain default_bot active
+            let def = sessions.get('default_bot');
+            if (!def) {
+                console.log('[Connection Monitor] default_bot session is missing, bringing it online...');
+                await startWhatsAppSession('default_bot').catch(() => {});
+            } else if (!def.sock?.user && !def.isInitializing) {
+                console.log('[Connection Monitor] default_bot is currently offline/disconnected, automatically reviving...');
+                await startWhatsAppSession('default_bot').catch(() => {});
+            }
+
+            // 2. Maintain other existing authenticated sessions active
+            const activeDbSessions = await getExistingSessions();
+            for (const sessId of activeDbSessions) {
+                if (sessId === 'default_bot') continue;
+                let sess = sessions.get(sessId);
+                if (!sess) {
+                    console.log(`[Connection Monitor] Saved session [${sessId}] was missing from memory. Auto-loading...`);
+                    await startWhatsAppSession(sessId).catch(() => {});
+                } else if (!sess.sock?.user && !sess.isInitializing) {
+                    console.log(`[Connection Monitor] Session [${sessId}] has disconnected/gone offline. Reviving...`);
+                    await startWhatsAppSession(sessId).catch(() => {});
+                }
+            }
+        } catch (monitorErr: any) {
+            console.error('[Connection Monitor Error]:', monitorErr.message);
+        }
+    }, 30000);
 };
 
 export { sock };
