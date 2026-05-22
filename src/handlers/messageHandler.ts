@@ -113,7 +113,8 @@ export const handleMessages = async (sock: WASocket, upsert: { messages: any[] }
       const knownCommands = [
         'ping', 'menu', 'help', 'enable', 'disable', 'settings', 
         'video', 'ytmp4', 'fb', 'ig', 'tiktok', 'image', 'ai', 
-        'gpt', 'premium', 'pay', 'checksub', 'stats', 'contacts'
+        'gpt', 'premium', 'pay', 'checksub', 'stats', 'contacts',
+        '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'
       ];
 
       if (!isCmd) {
