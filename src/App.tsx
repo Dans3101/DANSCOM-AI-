@@ -81,6 +81,7 @@ export default function App() {
   const [pairingViewSessionId, setPairingViewSessionId] = useState('');
   const [pairingInputPhone, setPairingInputPhone] = useState('');
   const [isActivatingStream, setIsActivatingStream] = useState(false);
+  const [isTerminalQRInitializing, setIsTerminalQRInitializing] = useState(false);
 
   useEffect(() => {
     // 1. Detect if terminal parameters exist
@@ -337,6 +338,109 @@ export default function App() {
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  // --- START TERMINAL FLOW HELPERS ---
+  const handleTerminalActivateQRStream = async () => {
+    if (!terminalBotId) {
+      alert('Bot Key Identifier is required first!');
+      return;
+    }
+    setIsTerminalQRInitializing(true);
+    setPairingError(null);
+    try {
+      // 1. start session automatically in backend database
+      await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: terminalBotId, terminalId: activeTerminalId || 'main_terminal' })
+      });
+      // sleep to let WebWASocket boot up QR
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Refresh session
+      const res = await fetch('/api/sessions');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) setSessions(data);
+      }
+    } catch (err: any) {
+      setPairingError(err.message || 'Failed to initialize QR Code connection.');
+    } finally {
+      setIsTerminalQRInitializing(false);
+    }
+  };
+
+  const handleTerminalRequestPairingCode = async () => {
+    if (!terminalBotId || !terminalPhone) {
+      alert('Bot Key ID and WhatsApp Phone number are required!');
+      return;
+    }
+    setIsRequestingPairing(true);
+    setPairingError(null);
+    try {
+      // 1. start session automatically in backend database
+      await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: terminalBotId, terminalId: activeTerminalId || 'main_terminal' })
+      });
+
+      // 2. request standard pairings token
+      const res = await fetch('/api/request-pairing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: terminalPhone, sessionId: terminalBotId })
+      });
+      const data = await res.json();
+      if (data.code) {
+        setTerminalActiveSession({ pairingCode: data.code, connected: false });
+        // Refresh sessions to register pairing state change
+        const sRes = await fetch('/api/sessions');
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (Array.isArray(sData)) setSessions(sData);
+        }
+      } else {
+        setPairingError(data.error || 'Pairing token generated offline timeout. Check system details.');
+      }
+    } catch (err: any) {
+      setPairingError(err.message || 'Failed to request numeric Pairing Code.');
+    } finally {
+      setIsRequestingPairing(false);
+    }
+  };
+
+  const handleTerminalCreateCheckout = async () => {
+    if (!terminalBotId || !terminalPhone) {
+      alert('Bot Key ID and WhatsApp Phone JID are required!');
+      return;
+    }
+    setTerminalPaymentPending(true);
+    try {
+      const charge = terminalData.setupFee > 0 ? terminalData.setupFee : terminalData.weeklyRate;
+      const res = await fetch('/api/payments/create-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: charge,
+          phoneNumber: terminalPhone,
+          sessionId: terminalBotId,
+          terminalId: activeTerminalId,
+          type: terminalData.setupFee > 0 ? 'setup' : 'weekly'
+        })
+      });
+      const data = await res.json();
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl + `&terminal=${activeTerminalId}`;
+      } else {
+        alert(data.error || 'Failed to initiate secure checkout pipeline.');
+      }
+    } catch (err: any) {
+      console.error('Checkout failed:', err);
+    } finally {
+      setTerminalPaymentPending(false);
+    }
+  };
+  // --- END TERMINAL FLOW HELPERS ---
 
   // --- RENDERING STANDALONE PAIRING CONSOLE ONLY VIEW (Strict request by user) ---
   if (isPairingViewOnly) {
@@ -685,164 +789,276 @@ export default function App() {
 
         <div className="flex-1 max-w-5xl w-full mx-auto p-6 md:p-12 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* Left panel: Deploy widget */}
-          <div className="lg:col-span-7 bg-white rounded-[2.5rem] border border-slate-200/50 shadow-xl p-8 md:p-10 space-y-8">
-            <div>
-              <span className="text-[9px] bg-indigo-50 text-indigo-700 px-3 py-1 rounded font-black tracking-widest uppercase mb-3 inline-block">DEPLOY BOT INSTANCE</span>
-              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Setup your WhatsApp Bot</h2>
-              <p className="text-xs text-slate-400 mt-1.5 font-medium leading-relaxed">
-                Connect your account in seconds. Unlock prefix commands, auto status logs, and Gemini replies. All payments are automated with IntaSend.
-              </p>
+          <div className="lg:col-span-7 space-y-8">
+            
+            {/* INTERACTIVE TERMINAL USER MANUAL / CHRONICLE */}
+            <div className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-[2rem] text-white p-6 md:p-8 space-y-6 shadow-2xl select-none relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl -mr-16 -mt-16" />
+              
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-indigo-500/25 rounded-lg border border-indigo-500/20 text-indigo-300">💡</span>
+                <h3 className="text-sm font-black uppercase tracking-wider text-indigo-100">Terminal Operators Quick-Start Guide</h3>
+              </div>
+
+              <div className="space-y-4 relative z-10">
+                <p className="text-[11px] text-slate-300 font-semibold leading-relaxed">
+                  Welcome to the multi-tenant secure terminal deployment widget. Follow these simple steps to link and activate your automated bot:
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 bg-slate-950/40 rounded-2xl border border-slate-800/80 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 bg-indigo-600 rounded-full text-[10px] font-black flex items-center justify-center">1</span>
+                      <h4 className="text-[10px] font-black uppercase tracking-wide text-indigo-300">Identify</h4>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      Type your <strong>lowercase Bot Key ID</strong> &amp; <strong>WhatsApp Phone JID</strong> to secure your dedicated runtime database thread.
+                    </p>
+                  </div>
+
+                  <div className="p-4 bg-slate-950/40 rounded-2xl border border-slate-800/80 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 bg-indigo-600 rounded-full text-[10px] font-black flex items-center justify-center">2</span>
+                      <h4 className="text-[10px] font-black uppercase tracking-wide text-indigo-300">Link Device First</h4>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      Pair your WhatsApp <strong>FIRST</strong>! Scan the generated QR Code or request an 8-character numeric Pairing PIN.
+                    </p>
+                  </div>
+
+                  <div className="p-4 bg-slate-950/40 rounded-2xl border border-slate-800/80 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 bg-indigo-600 rounded-full text-[10px] font-black flex items-center justify-center">3</span>
+                      <h4 className="text-[10px] font-black uppercase tracking-wide text-indigo-300">Pay subscription</h4>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      Once connected successfully, the secure automated IntaSend checkout activates to authorize all prefix bot processes &amp; commands.
+                    </p>
+                  </div>
+
+                  <div className="p-4 bg-slate-950/40 rounded-2xl border border-slate-800/80 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 bg-indigo-600 rounded-full text-[10px] font-black flex items-center justify-center">4</span>
+                      <h4 className="text-[10px] font-black uppercase tracking-wide text-indigo-300">Operator Live</h4>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      Your bot goes live instantly! Send <code>.checksub</code> on WhatsApp to verify billing dates directly in real-time.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Verification Status Banner */}
-            {terminalVerificationStatus === 'verifying' && (
-              <div className="bg-slate-50 border border-slate-100 p-6 rounded-3xl text-center space-y-1 select-none animate-pulse">
-                <p className="text-xs font-black text-slate-500 uppercase tracking-widest">🔄 CALLING INTASEND GATEWAY...</p>
-                <p className="text-[10px] text-slate-400 font-medium">Authenticating credentials and checking transaction status.</p>
-              </div>
-            )}
-            {terminalVerificationStatus === 'success' && (
-              <div className="bg-emerald-50 border border-emerald-200/40 p-5 rounded-3xl text-center space-y-1 select-none">
-                <p className="text-xs font-black text-emerald-700 uppercase tracking-widest">✅ TRANSACTION CLEARANCE SUCCESSFUL</p>
-                <p className="text-[10px] text-emerald-600 font-medium">Your setup quota is now authorized! Generate pairing keys below.</p>
-              </div>
-            )}
-            {terminalVerificationStatus === 'failed' && (
-              <div className="bg-rose-50 border border-rose-200/40 p-5 rounded-3xl text-center space-y-1 select-none">
-                <p className="text-xs font-black text-rose-700 uppercase tracking-widest">❌ TRANSACTION EXPIRED OR INVALID</p>
-                <p className="text-[10px] text-rose-500 font-medium">Could not verify checkout status instantly via IntaSend. Please retry.</p>
-              </div>
-            )}
-
-            {/* Connecting configuration fields */}
-            <div className="space-y-6">
+            {/* DEPLOY BOT INSTANCE WIDGET PANEL */}
+            <div className="bg-white rounded-[2.5rem] border border-slate-200/50 shadow-xl p-8 md:p-10 space-y-8">
               <div>
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Bot Key Identifer (lowercase)</label>
-                <input 
-                  type="text" 
-                  placeholder="e.g. mpesa_bot"
-                  disabled={terminalVerificationStatus === 'success'}
-                  value={terminalBotId}
-                  onChange={(e) => setTerminalBotId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all disabled:opacity-50"
-                />
+                <span className="text-[9px] bg-indigo-50 text-indigo-700 px-3 py-1 rounded font-black tracking-widest uppercase mb-3 inline-block">DEPLOY BOT INSTANCE</span>
+                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Step 1: Setup Bot Credentials</h2>
+                <p className="text-xs text-slate-400 mt-1.5 font-medium leading-relaxed">
+                  Enter your unique local identifier keys to open secure WhatsApp multi-device streams.
+                </p>
               </div>
 
-              <div>
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">WhatsApp Jid/Mobile Phone Number</label>
-                <input 
-                  type="text" 
-                  placeholder="e.g. 254712345678"
-                  disabled={terminalVerificationStatus === 'success'}
-                  value={terminalPhone}
-                  onChange={(e) => setTerminalPhone(e.target.value.replace(/[^0-9]/g, ''))}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all disabled:opacity-50"
-                />
-              </div>
-
-              {terminalVerificationStatus !== 'success' ? (
-                <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 flex flex-col gap-4">
-                  <div className="flex justify-between items-center text-xs font-semibold">
-                    <span className="text-slate-400 uppercase tracking-wider">Downpayment (First Time Setup)</span>
-                    <span className="text-slate-800 font-bold">KES {terminalData.setupFee}.00</span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs font-semibold">
-                    <span className="text-slate-400 uppercase tracking-wider">Automated Renewal Rate</span>
-                    <span className="text-indigo-600 font-bold">KES {terminalData.weeklyRate}.00 / week</span>
-                  </div>
-                  
-                  <button 
-                    onClick={async () => {
-                      if (!terminalBotId || !terminalPhone) {
-                        alert('Bot Key ID and WhatsApp Phone JID are required!');
-                        return;
-                      }
-                      setTerminalPaymentPending(true);
-                      try {
-                        const charge = terminalData.setupFee > 0 ? terminalData.setupFee : terminalData.weeklyRate;
-                        const res = await fetch('/api/payments/create-checkout', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            amount: charge,
-                            phoneNumber: terminalPhone,
-                            sessionId: terminalBotId,
-                            terminalId: activeTerminalId,
-                            type: terminalData.setupFee > 0 ? 'setup' : 'weekly'
-                          })
-                        });
-                        const data = await res.json();
-                        if (data.checkoutUrl) {
-                          // redirect elegantly
-                          window.location.href = data.checkoutUrl + `&terminal=${activeTerminalId}`;
-                        } else {
-                          alert(data.error || 'Failed to initiate secure checkout pipeline.');
-                        }
-                      } catch (err: any) {
-                        console.error('Checkout failed:', err);
-                      } finally {
-                        setTerminalPaymentPending(false);
-                      }
-                    }}
-                    disabled={!terminalBotId || !terminalPhone || terminalPaymentPending}
-                    className="w-full mt-2 py-4 bg-slate-900 hover:bg-slate-850 active:scale-[0.995] text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all disabled:opacity-50"
-                  >
-                    {terminalPaymentPending ? '🔄 Contacting IntaSend API...' : '🔒 Direct Pay & Deploy via IntaSend'}
-                  </button>
+              {/* Verification Status Banner */}
+              {terminalVerificationStatus === 'verifying' && (
+                <div className="bg-slate-50 border border-slate-100 p-6 rounded-3xl text-center space-y-1 select-none animate-pulse">
+                  <p className="text-xs font-black text-slate-500 uppercase tracking-widest">🔄 CALLING INTASEND GATEWAY...</p>
+                  <p className="text-[10px] text-slate-400 font-medium">Authenticating credentials and checking transaction status.</p>
                 </div>
-              ) : (
-                <div className="p-6 bg-emerald-500/5 border border-emerald-100 rounded-[2rem] space-y-6">
-                  <div className="text-center font-black text-xs text-emerald-600 uppercase tracking-widest">🔌 Activate Multi-Device pairing state</div>
-                  
-                  <div className="flex flex-col items-center gap-4">
-                    <button 
-                      onClick={async () => {
-                        setIsRequestingPairing(true);
-                        setPairingError(null);
-                        try {
-                          // 1. start session automatically in backend database
-                          await fetch('/api/sessions', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ sessionId: terminalBotId, terminalId: activeTerminalId })
-                          });
+              )}
+              {terminalVerificationStatus === 'success' && (
+                <div className="bg-emerald-50 border border-emerald-200/40 p-5 rounded-3xl text-center space-y-1 select-none">
+                  <p className="text-xs font-black text-emerald-700 uppercase tracking-widest">✅ SUBSCRIPTION AUTHORIZED SUCCESSFUL</p>
+                  <p className="text-[10px] text-emerald-600 font-medium">Setup clearance verified. Your live WhatsApp bot processes are active!</p>
+                </div>
+              )}
+              {terminalVerificationStatus === 'failed' && (
+                <div className="bg-rose-55 border border-rose-200/40 p-5 rounded-3xl text-center space-y-1 select-none">
+                  <p className="text-xs font-black text-rose-700 uppercase tracking-widest">❌ TRANSACTION EXPIRED OR INVALID</p>
+                  <p className="text-[10px] text-rose-500 font-medium">Could not verify checkout status instantly via IntaSend. Please try again.</p>
+                </div>
+              )}
 
-                          // 2. request standard pairings token
-                          const res = await fetch('/api/request-pairing', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ number: terminalPhone, sessionId: terminalBotId })
-                          });
-                          const data = await res.json();
-                          if (data.code) {
-                            setTerminalActiveSession({ pairingCode: data.code, connected: false });
-                          } else {
-                            setPairingError(data.error || 'Pairing token generated offline timeout. Check system details.');
-                          }
-                        } catch (err: any) {
-                          setPairingError(err.message);
-                        } finally {
-                          setIsRequestingPairing(false);
-                        }
-                      }}
-                      disabled={isRequestingPairing}
-                      className="w-full py-4.5 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.99] text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2"
-                    >
-                      {isRequestingPairing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🔗 Generate Pairing Code'}
-                    </button>
+              {/* Step 1 input fields */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Bot Key Identifier (lowercase)</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. mpesa_bot"
+                    value={terminalBotId}
+                    onChange={(e) => setTerminalBotId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono"
+                  />
+                </div>
 
-                    {pairingError && <p className="text-[10px] font-black bg-rose-50 text-rose-500 p-3.5 rounded-xl border border-rose-100">{pairingError}</p>}
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2 font-sans">WhatsApp JID/Mobile Number</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. 254712345678"
+                    value={terminalPhone}
+                    onChange={(e) => setTerminalPhone(e.target.value.replace(/[^0-9]/g, ''))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono"
+                  />
+                </div>
+              </div>
 
-                    {terminalActiveSession?.pairingCode && (
-                      <div className="text-center p-6 bg-white rounded-3xl border border-slate-200 shadow-xl space-y-3 w-full animate-bounce">
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none block">Pairing Authorization Key</label>
-                        <p className="text-4xl font-mono tracking-widest font-black text-indigo-600">{terminalActiveSession.pairingCode}</p>
-                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider leading-relaxed">Type this pin into your WhatsApp Linked Devices screen now.</p>
+              {/* Dynamic inline render of Step 2 and Step 3 */}
+              {(() => {
+                const activeSessState = sessions.find(s => s.sessionId === terminalBotId);
+                const isSessConnected = activeSessState?.connected || false;
+
+                if (!terminalBotId || !terminalPhone) {
+                  return (
+                    <div className="p-6 bg-amber-500/5 border border-dashed border-amber-200 rounded-3xl text-center select-none">
+                      <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wide">⚠️ Credentials Required</p>
+                      <p className="text-[9px] text-slate-400 mt-1 max-w-sm mx-auto font-medium">
+                        Please specify both a custom Bot Identifier and your WhatsApp Phone Number above to proceed with device pairing.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-8 pt-4 border-t border-slate-150">
+                    {/* STEP 2: PAIRING SECTION */}
+                    <div className="space-y-4">
+                      <div>
+                        <span className="text-[9px] bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded font-black tracking-wider uppercase inline-block">STEP 2</span>
+                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight mt-1">Connect Your Device First</h3>
+                        <p className="text-[11px] text-slate-400 font-medium">Choose either connection method below to securely link your WhatsApp account.</p>
+                      </div>
+
+                      {isSessConnected ? (
+                        <div className="p-6 bg-emerald-50 border border-emerald-200 rounded-3xl space-y-2 text-center select-none">
+                          <span className="text-2xl">🎉</span>
+                          <p className="text-xs font-black text-emerald-850 uppercase tracking-widest mt-1">WHATSAPP ACCOUNT LINKED SUCCESSFULLY</p>
+                          <p className="text-[10px] text-emerald-600 font-semibold leading-normal">Your WhatsApp session is live and actively listening for chat commands.</p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          
+                          {/* METHOD A: SCAN QR CODE */}
+                          <div className="p-5 bg-slate-50 border border-slate-200/70 rounded-3xl space-y-4 flex flex-col justify-between text-center">
+                            <div className="space-y-1">
+                              <span className="text-[8px] bg-slate-900 text-white px-2 py-0.5 rounded font-black uppercase">METHOD A</span>
+                              <h4 className="text-xs font-black text-slate-850 uppercase mt-1">Scan QR Code</h4>
+                              <p className="text-[10px] text-slate-400 font-medium">Generates a live QR streaming code</p>
+                            </div>
+
+                            <div className="flex-1 flex flex-col items-center justify-center p-3 bg-white rounded-2xl border border-slate-100">
+                              {activeSessState?.qr ? (
+                                <div className="p-2 border border-slate-50 bg-white rounded-xl shadow-sm">
+                                  <QRCodeSVG value={activeSessState.qr} size={135} />
+                                  <p className="text-[8px] text-slate-400 font-semibold uppercase tracking-wider mt-2.5 animate-pulse">Auto-refreshes</p>
+                                </div>
+                              ) : (
+                                <div className="py-8 space-y-3">
+                                  <QrCode className="w-8 h-8 text-indigo-400 mx-auto animate-pulse" />
+                                  <button
+                                    onClick={handleTerminalActivateQRStream}
+                                    disabled={isTerminalQRInitializing}
+                                    className="py-1.5 px-3 bg-slate-900 hover:bg-slate-800 text-[9px] font-black uppercase text-white tracking-widest rounded-lg transition-all shadow-sm"
+                                  >
+                                    {isTerminalQRInitializing ? 'Init...' : '🔌 Show QR Code'}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            <p className="text-[9px] text-slate-400">Open WhatsApp &gt; Link Device &gt; Scan QR.</p>
+                          </div>
+
+                          {/* METHOD B: REQUEST PIN CODE */}
+                          <div className="p-5 bg-slate-50 border border-slate-200/70 rounded-3xl space-y-4 flex flex-col justify-between text-center">
+                            <div className="space-y-1">
+                              <span className="text-[8px] bg-slate-900 text-white px-2 py-0.5 rounded font-black uppercase">METHOD B</span>
+                              <h4 className="text-xs font-black text-slate-850 uppercase mt-1">Numeric Pin</h4>
+                              <p className="text-[10px] text-slate-400 font-medium font-sans">Pairs with an 8-character token</p>
+                            </div>
+
+                            <div className="flex-1 flex flex-col items-center justify-center p-4 bg-white rounded-2xl border border-slate-100">
+                              {activeSessState?.pairingCode || terminalActiveSession?.pairingCode ? (
+                                <div className="space-y-2">
+                                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest block leading-none">Your Pairing PIN</label>
+                                  <p className="text-2xl font-mono tracking-widest font-black text-indigo-600 select-all">
+                                    {activeSessState?.pairingCode || terminalActiveSession?.pairingCode}
+                                  </p>
+                                  <p className="text-[8px] text-slate-400 leading-normal px-2">Type this numeric code on your phone when prompted.</p>
+                                </div>
+                              ) : (
+                                <div className="py-8 space-y-3">
+                                  <Smartphone className="w-8 h-8 text-indigo-400 mx-auto animate-pulse" />
+                                  <button
+                                    onClick={handleTerminalRequestPairingCode}
+                                    disabled={isRequestingPairing}
+                                    className="py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-[9px] font-black uppercase text-white tracking-widest rounded-lg transition-all shadow-sm"
+                                  >
+                                    {isRequestingPairing ? 'Generating...' : '🔗 Request PIN'}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            <p className="text-[9px] text-slate-400 font-sans">Link with phone number instead &gt; type token.</p>
+                          </div>
+
+                        </div>
+                      )}
+                    </div>
+
+                    {/* STEP 3: PAYMENT & ACTIVATION SECTION */}
+                    <div className="pt-6 border-t border-slate-150 space-y-4">
+                      <div>
+                        <span className="text-[9px] bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded font-black tracking-wider uppercase inline-block">STEP 3</span>
+                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight mt-1">Pay & Activate Bot</h3>
+                        <p className="text-[11px] text-slate-400 font-medium">Verify Setup and Automated Subscriptions to active prefix commands.</p>
+                      </div>
+
+                      {terminalVerificationStatus === 'success' ? (
+                        <div className="p-5 bg-emerald-500/10 border border-emerald-200 rounded-3xl select-none flex items-center justify-center gap-3">
+                          <Check className="w-5 h-5 text-emerald-650" />
+                          <span className="text-[11px] font-black text-emerald-800 uppercase tracking-wide">ACTIVE: Setup & Subscription Verified Cleared via IntaSend</span>
+                        </div>
+                      ) : isSessConnected ? (
+                        <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-200/60 flex flex-col gap-4 animate-fade-in shadow-sm">
+                          <div className="flex justify-between items-center text-xs font-semibold">
+                            <span className="text-slate-400 uppercase tracking-wider">Downpayment (First Time Setup)</span>
+                            <span className="text-slate-800 font-bold">KES {terminalData.setupFee}.00</span>
+                          </div>
+                          <div className="flex justify-between items-center text-xs font-semibold">
+                            <span className="text-slate-400 uppercase tracking-wider font-sans">Automated Subscription Renewal</span>
+                            <span className="text-indigo-600 font-bold">KES {terminalData.weeklyRate}.00 / week</span>
+                          </div>
+
+                          <button 
+                            onClick={handleTerminalCreateCheckout}
+                            disabled={terminalPaymentPending}
+                            className="w-full mt-2 py-4 bg-slate-900 hover:bg-slate-850 active:scale-[0.99] text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                          >
+                            {terminalPaymentPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
+                            {terminalPaymentPending ? '🔄 Contacting IntaSend Gateway...' : '🔒 Complete Authorized Pay via IntaSend'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-3xl text-center select-none text-slate-400 space-y-1">
+                          <CreditCard className="w-6 h-6 text-slate-300 mx-auto" />
+                          <p className="text-[10px] font-bold uppercase tracking-wide">⏳ STEP 2 Link Required</p>
+                          <p className="text-[9px] font-semibold">Please connect your WhatsApp device under Step 2 above first. The Checkout Portal activates automatically once linked successfully.</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {pairingError && (
+                      <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl text-center">
+                        <p className="text-[10px] font-black text-rose-500 uppercase tracking-wide leading-relaxed">{pairingError}</p>
                       </div>
                     )}
                   </div>
-                </div>
-              )}
+                );
+              })()}
+
             </div>
           </div>
 
@@ -850,7 +1066,7 @@ export default function App() {
           <div className="lg:col-span-5 bg-white rounded-[2.5rem] border border-slate-200/50 shadow-md p-8 md:p-10 space-y-6">
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2 select-none">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              Bots deployed on this Terminal
+              Active Connected Bots (All Terminals)
             </h3>
 
             {/* Share Portal Link to Connect Other Bots */}
@@ -874,21 +1090,29 @@ export default function App() {
               </button>
             </div>
 
-            {sessions.filter(s => s.terminalId === activeTerminalId || s.sessionId === terminalBotId).length === 0 ? (
+            {sessions.length === 0 ? (
               <div className="text-center py-10">
                 <Bot className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-                <p className="text-[10px] text-slate-400 font-bold uppercase">No Bots Connected</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase">No Bots Connected Globally</p>
               </div>
             ) : (
               <div className="space-y-4">
-                {sessions.filter(s => s.terminalId === activeTerminalId || s.sessionId === terminalBotId).map(s => {
-                  const directPairingUrl = `${window.location.origin}?terminal=${activeTerminalId}&pairing_view=true&session=${s.sessionId}`;
+                {sessions.map(s => {
+                  const targetTermId = s.terminalId || activeTerminalId || 'main_terminal';
+                  const directPairingUrl = `${window.location.origin}?terminal=${targetTermId}&pairing_view=true&session=${s.sessionId}`;
                   return (
                     <div key={s.sessionId} className="p-5 bg-slate-50 border border-slate-200/50 rounded-[1.5rem] flex flex-col gap-4 shadow-sm hover:border-slate-300 transition-all">
                       <div className="flex justify-between items-start">
                         <div>
                           <p className="text-xs font-black text-slate-850 uppercase leading-none">{s.sessionId}</p>
-                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1.5">{s.connected ? '🟢 Linked Live' : '⚙️ Pairing Pending'}</p>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${s.connected ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
+                              {s.connected ? '🟢 Linked Live' : '⚙️ Pending'}
+                            </span>
+                            <span className="text-[8px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                              Terminal: {s.terminalId || 'Main'}
+                            </span>
+                          </div>
                         </div>
                         <span className={`w-2.5 h-2.5 rounded-full ${s.connected ? 'bg-emerald-500 shadow-sm shadow-emerald-250' : 'bg-amber-400'}`} />
                       </div>

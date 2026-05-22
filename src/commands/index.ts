@@ -68,15 +68,7 @@ export const processCommand = async (
           }
         } catch (e) {}
 
-        const menuText = `> 🕵️ᴜsᴇʀ ɴᴀᴍᴇ: ${userPushName}
-> 📅ᴅᴀᴛᴇ: ${currentDate}
-> ⏰ᴛɪᴍᴇ: ${currentTime}
-> ⭐ᴜsᴇʀs: ${usersCount}
-
-
-
-
-*📋 MENU OPTIONS*
+        const menuText = `*📋 MENU OPTIONS*
 
 *1.* 🌐 OUR WEB
 
@@ -102,7 +94,11 @@ export const processCommand = async (
 
 *12.* 🖼️ STICKER MENU
 
-_Reply with a number (1-12) to access that section_`.trim();
+_Reply with a number (1-12) to access that section_
+
+📢 *OUR OFFICIAL CHANNELS-JOIN:*
+• *WhatsApp Channel:* https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H
+• *Support Group:* https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t`.trim();
 
         try {
           const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');

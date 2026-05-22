@@ -85,12 +85,13 @@ export const handleMessages = async (sock: WASocket, upsert: { messages: any[] }
                  '';
       }
 
-      const numericSender = sender.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+      const safeSender = sender || '';
+      const numericSender = safeSender.split('@')[0]?.split(':')[0]?.replace(/[^0-9]/g, '') || '';
       const numericOwner = config.bot.ownerNumber ? config.bot.ownerNumber.replace(/[^0-9]/g, '') : '';
       const isOwner = !!(
         m.key.fromMe || 
         (numericOwner && numericSender === numericOwner) || 
-        (config.bot.ownerNumber && sender.includes(config.bot.ownerNumber))
+        (config.bot.ownerNumber && safeSender.includes(config.bot.ownerNumber))
       );
 
       body = body.trim();
