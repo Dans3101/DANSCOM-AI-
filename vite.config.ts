@@ -16,8 +16,8 @@ export default defineConfig(({mode}) => {
             const parsedUrl = req.url ? req.url.split('?')[0] : '';
             if (parsedUrl.startsWith('/api/') || parsedUrl === '/api') {
               try {
-                // Load Express API routes dynamically to bypass circular or early load module locks
-                const apiModule = await import('./src/server-api.js');
+                // Use Vite's build pipeline to compile and load the typescript API module on the fly
+                const apiModule = await server.ssrLoadModule('./src/server-api.ts');
                 apiModule.app(req as any, res as any, next);
                 return;
               } catch (err: any) {
