@@ -13,6 +13,8 @@ import { handleMessages } from '../handlers/messageHandler.js';
 import { startAutoBio } from './autobio.js';
 import { isEnabled } from '../utils/settings.js';
 import { config } from '../config/index.js';
+import { getTerminalForSession, initiateIntasendPayment } from './terminalService.js';
+
 
 // Resolve makeWASocket function dynamically to handle both ESM and Node bundled CJS environments
 const getMakeWASocket = (): any => {
@@ -378,12 +380,58 @@ export const startWhatsAppSession = async (sessionId: string) => {
                 // Send congratulations message directly in user's DM
                 if (currentSock.user?.id) {
                     const userJid = currentSock.user.id.split(':')[0] + '@s.whatsapp.net';
+                    const userPhone = currentSock.user.id.split(':')[0].split(':')[0];
                     try {
-                        const welcomeText = `🎉 *Congratulations!*\n\nYour *DANSCOM WhatsApp Bot* (Session: \`${sessionId}\`) has been successfully connected and is now fully active!\n\n🤖 *Bot Profile:* ${currentSock.user.name || 'DANSCOM Bot'}\n📱 *Number:* ${currentSock.user.id.split(':')[0]}\n\nEnjoy using your automated features! Keep this chat open if you want to test commands directly! Type /menu or .menu.`;
+                        let welcomeText = `🎉 *Congratulations!*\n\nYour *DANSCOM WhatsApp Bot* (Session: \`${sessionId}\`) has been successfully connected and is now fully active!\n\n🤖 *Bot Profile:* ${currentSock.user.name || 'DANSCOM Bot'}\n📱 *Number:* ${userPhone}\n\nEnjoy using your automated features! Keep this chat open if you want to test commands directly! Type /menu or .menu.`;
+                        
+                        // Check terminal information
+                        const terminal = await getTerminalForSession(sessionId);
+                        const devUrl = process.env.DEVELOPMENT_APP_URL || process.env.SHARED_APP_URL || 'https://ais-pre-lo7lp5bzig74auqtidjmrp-359576585250.europe-west1.run.app';
+                        
+                        if (terminal) {
+                            const setupAmt = terminal.setupFee || 0;
+                            const weeklyAmt = terminal.weeklyRate || 5;
+                            const billAmount = setupAmt > 0 ? setupAmt : weeklyAmt;
+                            const billType = setupAmt > 0 ? 'setup' : 'weekly';
+                            
+                            try {
+                                const checkDetails = await initiateIntasendPayment({
+                                    amount: billAmount,
+                                    email: `${userPhone}@danscom.com`,
+                                    phoneNumber: userPhone,
+                                    sessionId: sessionId,
+                                    terminalId: terminal.id,
+                                    type: billType,
+                                    hostUrl: devUrl
+                                });
+                                
+                                welcomeText += `\n\n💳 *Payment & Subscription Details*\n----------------------------------------\n*Terminal Group:* ${terminal.name}\n*Amount due:* KES ${billAmount}.00 (${billType === 'setup' ? 'One-time setup fee' : 'Weekly fee'})\n\nPlease activate your subscription immediately to ensure uninterrupted custom bot processes using safe checkout:\n\n🔗 *Fast Checkout link:* ${checkDetails.checkoutUrl}\n\n_Note: Once complete, type *.checksub* to verify your status instantly!_`;
+                            } catch (errPay: any) {
+                                console.error('>> Failed to pre-initiate Intasend inline payment:', errPay.message || errPay);
+                                welcomeText += `\n\n💳 *Payment & Subscription Details*\n----------------------------------------\n*Terminal Group:* ${terminal.name}\n*Amount due:* KES ${billAmount}.00 (${billType === 'setup' ? 'One-time setup fee' : 'Weekly fee'})\n\nPlease visit your terminal portal of origin to complete subscription:\n\n🔗 *Portal Link:* ${devUrl}?terminal=${terminal.id}`;
+                            }
+                        } else {
+                            // Default main billing
+                            try {
+                                const checkDetails = await initiateIntasendPayment({
+                                    amount: 5,
+                                    email: `${userPhone}@danscom.com`,
+                                    phoneNumber: userPhone,
+                                    sessionId: sessionId,
+                                    terminalId: 'main_terminal',
+                                    type: 'weekly',
+                                    hostUrl: devUrl
+                                });
+                                welcomeText += `\n\n💳 *Payment & Subscription Details*\n----------------------------------------\n*Amount due:* KES 5.00 (Weekly subscription)\n\nPlease complete your checkout immediately using direct access:\n\n🔗 *Checkout Link:* ${checkDetails.checkoutUrl}\n\n_Note: Once complete, type *.checksub* to verify status!_`;
+                            } catch (errPay: any) {
+                                console.error('>> Failed to pre-initiate default Intasend payment:', errPay.message || errPay);
+                            }
+                        }
+
                         await currentSock.sendMessage(userJid, {
                             text: welcomeText
                         });
-                        console.log(`>> Congrats welcome message sent to ${userJid}`);
+                        console.log(`>> Congrats welcome and subscription payload sent to ${userJid}`);
                     } catch (err: any) {
                         console.error('>> Failed to send connection congratulations message:', err.message);
                     }

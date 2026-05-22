@@ -853,6 +853,27 @@ export default function App() {
               Bots deployed on this Terminal
             </h3>
 
+            {/* Share Portal Link to Connect Other Bots */}
+            <div className="p-5 bg-indigo-50/55 border border-indigo-100 rounded-[1.5rem] space-y-3 shadow-none">
+              <div className="flex items-center gap-2 select-none">
+                <LinkIcon className="w-4 h-4 text-indigo-600" />
+                <h4 className="text-xs font-black text-indigo-900 uppercase tracking-wide">Invite & Connect Other Bots</h4>
+              </div>
+              <p className="text-[10px] text-indigo-500 font-semibold leading-relaxed">
+                Need other operators to link their bots under this terminal? Share this portal link to let them pay and deploy instantly!
+              </p>
+              <button
+                onClick={() => {
+                  const shareUrl = `${window.location.origin}?terminal=${activeTerminalId}`;
+                  navigator.clipboard.writeText(shareUrl);
+                  alert('Direct connection portal link for other bots copied to clipboard!');
+                }}
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+              >
+                <Copy className="w-3.5 h-3.5" /> Copy Connection Link
+              </button>
+            </div>
+
             {sessions.filter(s => s.terminalId === activeTerminalId || s.sessionId === terminalBotId).length === 0 ? (
               <div className="text-center py-10">
                 <Bot className="w-8 h-8 text-slate-200 mx-auto mb-2" />

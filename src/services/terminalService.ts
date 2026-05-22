@@ -396,3 +396,13 @@ export const isUserPaid = async (identifier: string): Promise<boolean> => {
 
   return false;
 };
+
+/**
+ * Find the terminal associated with a particular WhatsApp bot session ID.
+ */
+export const getTerminalForSession = async (sessionId: string): Promise<Terminal | null> => {
+  const terminals = await getAllTerminals();
+  const found = terminals.find(t => t.sessionIds && t.sessionIds.includes(sessionId));
+  return found || null;
+};
+
