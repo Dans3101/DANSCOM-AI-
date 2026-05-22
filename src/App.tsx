@@ -3,11 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -30,7 +25,11 @@ import {
   QrCode,
   Link as LinkIcon,
   RefreshCw,
-  X
+  X,
+  CreditCard,
+  Plus,
+  Copy,
+  Check
 } from 'lucide-react';
 
 export default function App() {
@@ -56,18 +55,103 @@ export default function App() {
   const [plugins, setPlugins] = useState<any[]>([]);
   const [aiConfig, setAiConfig] = useState<any>(null);
 
+  // --- TERMINAL MULTI-TENANCY STATES ---
+  const [terminals, setTerminals] = useState<any[]>([]);
+  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
+  const [terminalData, setTerminalData] = useState<any>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Terminal Forms Creator States
+  const [newTerminalId, setNewTerminalId] = useState('');
+  const [newTerminalName, setNewTerminalName] = useState('');
+  const [newTerminalOperator, setNewTerminalOperator] = useState('');
+  const [newTerminalWeeklyRate, setNewTerminalWeeklyRate] = useState(5);
+  const [newTerminalSetupFee, setNewTerminalSetupFee] = useState(10);
+
+  // Terminal Mini-Dashboard deploy states
+  const [terminalBotId, setTerminalBotId] = useState('');
+  const [terminalPhone, setTerminalPhone] = useState('');
+  const [terminalPaymentPending, setTerminalPaymentPending] = useState(false);
+  const [terminalActiveSession, setTerminalActiveSession] = useState<any>(null);
+  const [terminalVerificationStatus, setTerminalVerificationStatus] = useState<string | null>(null);
+  const [isSimulator, setIsSimulator] = useState(false);
+
+  // Standalone Pairing link only state (requested by user)
+  const [isPairingViewOnly, setIsPairingViewOnly] = useState(false);
+  const [pairingViewSessionId, setPairingViewSessionId] = useState('');
+  const [pairingInputPhone, setPairingInputPhone] = useState('');
+  const [isActivatingStream, setIsActivatingStream] = useState(false);
+
   useEffect(() => {
+    // 1. Detect if terminal parameters exist
+    const urlParams = new URLSearchParams(window.location.search);
+    const termParam = urlParams.get('terminal');
+    const invoiceParam = urlParams.get('invoice_id');
+    const simParam = urlParams.get('is_simulator');
+
+    if (simParam === 'true') {
+      setIsSimulator(true);
+    }
+
+    const pairingViewParam = urlParams.get('pairing_view');
+    const sessionParam = urlParams.get('session');
+
+    if (pairingViewParam === 'true' && sessionParam) {
+      setIsPairingViewOnly(true);
+      setPairingViewSessionId(sessionParam);
+    }
+
+    if (termParam) {
+      setActiveTerminalId(termParam);
+      fetch(`/api/terminals/${termParam}`)
+        .then(res => res.json())
+        .then(data => {
+          if (!data.error) {
+            setTerminalData(data);
+          }
+        })
+        .catch(err => console.error('Error fetching single terminal details:', err));
+    } else {
+      // 2. Load owner terminals database
+      fetch('/api/terminals')
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) setTerminals(data);
+        })
+        .catch(err => console.error('Error loading terminals list:', err));
+    }
+
+    // 3. Handle automated IntaSend checkout redirection loop
+    if (invoiceParam) {
+      setTerminalVerificationStatus('verifying');
+      fetch('/api/payments/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId: invoiceParam, terminalId: termParam })
+      })
+      .then(res => res.json())
+      .then(resData => {
+        if (resData.success) {
+          setTerminalVerificationStatus('success');
+          // Populate from details to ease quick deployment
+          if (resData.transaction?.sessionId) {
+            setTerminalBotId(resData.transaction.sessionId);
+          }
+          if (resData.transaction?.phoneNumber) {
+            setTerminalPhone(resData.transaction.phoneNumber);
+          }
+        } else {
+          setTerminalVerificationStatus('failed');
+        }
+      })
+      .catch(() => setTerminalVerificationStatus('failed'));
+    }
+
     const safeFetch = async (url: string) => {
         try {
             const res = await fetch(url);
             if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-            const contentType = res.headers.get("content-type");
-            if (contentType && contentType.indexOf("application/json") !== -1) {
-                return await res.json();
-            } else {
-                const text = await res.text();
-                throw new Error(`Expected JSON but got ${contentType || 'unknown'}: ${text.substring(0, 50)}...`);
-            }
+            return await res.json();
         } catch (err) {
             console.error(`Fetch failed for ${url}:`, err);
             throw err;
@@ -215,212 +299,699 @@ export default function App() {
     }
   };
 
-  const features = [
-    { name: 'Auto View Status', icon: <Search className="w-4 h-4 text-emerald-500" />, active: true, desc: 'Passive Status Viewing' },
-    { name: 'Anti-Delete', icon: <Shield className="w-4 h-4 text-red-500" />, active: false, desc: 'Store deleted messages' },
-    { name: 'Always Online', icon: <Smartphone className="w-4 h-4 text-emerald-500" />, active: true, desc: 'Persistent presence' },
-    { name: 'Fake Typing', icon: <Zap className="w-4 h-4 text-yellow-500" />, active: true, desc: 'Triggers on chat entry' },
-    { name: 'Safe Anti-Ban', icon: <Shield className="w-4 h-4 text-emerald-500" />, active: true, desc: 'Human-like rate limits' },
-  ];
+  const handleCreateTerminal = async () => {
+    if (!newTerminalId || !newTerminalName) {
+      alert('Terminal ID and Name are required!');
+      return;
+    }
+    try {
+      const res = await fetch('/api/terminals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: newTerminalId,
+          name: newTerminalName,
+          operatorName: newTerminalOperator,
+          weeklyRate: newTerminalWeeklyRate,
+          setupFee: newTerminalSetupFee
+        })
+      });
 
-  return (
-    <div className="flex flex-col h-screen w-full bg-slate-50 text-slate-900 font-sans overflow-hidden">
-      {/* Top Navigation Bar */}
-      <nav className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 flex-shrink-0 z-20">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center text-white shadow-sm shadow-emerald-100">
-            <Bot className="w-5 h-5 text-white stroke-[2.5]" />
-          </div>
-          <h1 className="text-lg font-bold tracking-tight text-slate-800 uppercase">
-            DANSCOM <span className="text-slate-400 font-normal ml-2 text-xs normal-case">v2.4.0</span>
-          </h1>
-        </div>
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 border border-emerald-100 rounded-full">
-            <div className={`w-2 h-2 rounded-full ${status.includes('Online') ? 'bg-emerald-500 animate-pulse' : 'bg-yellow-500'}`} />
-            <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">{status}</span>
-          </div>
-          <div className="flex items-center gap-4 border-l border-slate-200 pl-6">
-            <div className="text-right">
-              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-none mb-1">Render Tier</p>
-              <p className="text-xs font-semibold">Free Instance</p>
-            </div>
-            <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
-              <span className="text-sm font-bold text-slate-500">DS</span>
-            </div>
-          </div>
-        </div>
-      </nav>
-      
-      <AnimatePresence>
-        {showPairing && (() => {
-          const activePairingSess = sessions.find(s => s.sessionId === pairingSessionId) || connection;
-          return (
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
+      if (res.ok) {
+        const data = await res.json();
+        setTerminals(prev => [...prev, data]);
+        setNewTerminalId('');
+        setNewTerminalName('');
+        setNewTerminalOperator('');
+        setNewTerminalWeeklyRate(5);
+        setNewTerminalSetupFee(10);
+      }
+    } catch (e) {
+      console.error('Failed creating terminal', e);
+    }
+  };
+
+  const copyTerminalLink = (id: string) => {
+    const link = `${window.location.origin}?terminal=${id}`;
+    navigator.clipboard.writeText(link);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // --- RENDERING STANDALONE PAIRING CONSOLE ONLY VIEW (Strict request by user) ---
+  if (isPairingViewOnly) {
+    const activeSessState = sessions.find(s => s.sessionId === pairingViewSessionId);
+    
+    // Quick helper to activate/wake-up session
+    const handleActivateSession = async () => {
+      setIsActivatingStream(true);
+      setPairingError(null);
+      try {
+        await fetch('/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: pairingViewSessionId, terminalId: activeTerminalId || 'main_terminal' })
+        });
+        
+        // Brief sleep to allow connection startup
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // Refresh session
+        const res = await fetch('/api/sessions');
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) setSessions(data);
+        }
+      } catch (err: any) {
+        setPairingError(err.message || 'Failed to activate secure websocket stream.');
+      } finally {
+        setIsActivatingStream(false);
+      }
+    };
+
+    const handleReqPairingCodeOnly = async () => {
+      if (!pairingInputPhone) {
+        alert('Please specify a valid WhatsApp mobile number first!');
+        return;
+      }
+      setIsRequestingPairing(true);
+      setPairingError(null);
+      try {
+        // Automatically make sure session is active
+        await fetch('/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: pairingViewSessionId, terminalId: activeTerminalId || 'main_terminal' })
+        });
+
+        const res = await fetch('/api/request-pairing', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ number: pairingInputPhone, sessionId: pairingViewSessionId })
+        });
+        
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({ error: 'Request rejected by gateway' }));
+          throw new Error(errData.error || 'Pairing token request failed.');
+        }
+
+        const data = await res.json();
+        if (data.code) {
+          setSessions(prev => prev.map(s => s.sessionId === pairingViewSessionId ? { ...s, pairingCode: data.code } : s));
+        } else {
+          setPairingError(data.error || 'Failed to generate PIN. Please try again or check number.');
+        }
+      } catch (err: any) {
+        setPairingError(err.message || 'Integration timeout. Verify details and try again.');
+      } finally {
+        setIsRequestingPairing(false);
+      }
+    };
+
+    return (
+      <div className="min-h-screen w-full bg-slate-50 text-slate-900 font-sans flex flex-col justify-start">
+        {/* Custom Isolated connection bar */}
+        <nav className="h-20 bg-white border-b border-slate-200/60 flex items-center justify-between px-6 md:px-12 select-none">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => {
+                // Return to terminal or admin
+                setIsPairingViewOnly(false);
+              }}
+              className="p-2 hover:bg-slate-100 rounded-xl border border-slate-200/80 text-slate-600 transition-all flex items-center gap-1.5 text-xs font-bold mr-2 uppercase"
             >
-              <motion.div 
-                initial={{ scale: 0.9, y: 20 }}
-                animate={{ scale: 1, y: 0 }}
-                exit={{ scale: 0.9, y: 20 }}
-                className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden my-8"
-              >
-                <div className="p-8 border-b border-slate-100 flex items-center justify-between">
-                  <div>
-                    <h3 className="text-xl font-bold text-slate-800">Bot Connection</h3>
-                    <p className="text-sm text-slate-400">Link your WhatsApp account</p>
-                  </div>
-                  <button 
-                    onClick={() => setShowPairing(false)}
-                    className="p-2 hover:bg-slate-50 rounded-full transition-colors"
-                  >
-                    <X className="w-5 h-5 text-slate-400" />
-                  </button>
-                </div>
+              ← Go Back
+            </button>
+            <div className="w-10 h-10 bg-emerald-600 text-white rounded-xl flex items-center justify-center font-black">
+              🔋
+            </div>
+            <div>
+              <h1 className="text-sm font-black tracking-tight text-slate-800 uppercase leading-none">
+                Pair Session: {pairingViewSessionId}
+              </h1>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                STATUS: {activeSessState?.connected ? '🟢 ONLINE' : '⚙️ STANDBY'}
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 border border-emerald-100/50 rounded-full">
+            <span className="text-[9px] font-black text-emerald-700 uppercase tracking-wider animate-pulse">DIRECT CONNECTION PORTAL</span>
+          </div>
+        </nav>
 
-                {/* Session Selector */}
-                <div className="px-8 pt-6 pb-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Target Bot Account</label>
-                  <select 
-                    value={pairingSessionId}
-                    onChange={(e) => {
-                      setPairingSessionId(e.target.value);
-                      setPhoneNumber('');
-                      setPairingError(null);
-                    }}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 transition-all cursor-pointer"
-                  >
-                    {sessions.map(s => (
-                      <option key={s.sessionId} value={s.sessionId}>
-                        {s.sessionId === 'default_bot' ? '🌐 Primary Bot (default)' : `🤖 Account: ${s.sessionId}`} {s.connected ? '● (Active)' : '○ (Click to Link)'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+        <div className="flex-1 max-w-4xl w-full mx-auto p-6 md:p-12 space-y-8 animate-fade-in">
+          
+          {/* Header intro info */}
+          <div className="text-center md:text-left space-y-2">
+            <span className="text-[9px] bg-indigo-50 text-indigo-700 px-3 py-1 rounded font-black tracking-widest uppercase inline-block">DEVICE AUTH HUB</span>
+            <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Connect your WhatsApp Device</h2>
+            <p className="text-xs text-slate-400 font-medium max-w-2xl leading-relaxed">
+              Scan the dynamic QR code directly or request a secure numeric pairing code pin. Choose either method to securely link your device.
+            </p>
+          </div>
 
-                <div className="px-8 pb-8 pt-2">
-                  <div className="flex justify-end mb-4">
-                    <button 
-                      onClick={handleRestart}
-                      disabled={isRestarting}
-                      className="flex items-center gap-2 text-[10px] font-bold text-slate-400 hover:text-emerald-500 uppercase tracking-widest transition-colors disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3 h-3 ${isRestarting ? 'animate-spin' : ''}`} />
-                      Refresh Connection
-                    </button>
-                  </div>
-                  {activePairingSess.connected ? (
-                    <div className="text-center py-8">
-                      <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Bot className="w-8 h-8" />
+          {/* Quick status feedback banner */}
+          {activeSessState?.connected && (
+            <div className="bg-emerald-50 border border-emerald-200 px-6 py-8 rounded-[2rem] text-center select-none space-y-2">
+              <span className="text-3xl">🎉</span>
+              <p className="text-xs font-black text-emerald-800 uppercase tracking-widest mt-1">DEVICE LINKED SUCCESSFULLY</p>
+              <p className="text-[10px] text-emerald-600 font-semibold">Your WhatsApp session is live and listening on all commands securely!</p>
+            </div>
+          )}
+
+          {/* Central Grid holding only QR Code & Pairing Code Methods */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
+            
+            {/* METHOD A: SCAN QR CODE */}
+            <div className={`bg-white rounded-[2.5rem] border ${activeSessState?.connected ? 'border-slate-100 opacity-60' : 'border-slate-200/60 shadow-xl'} p-8 flex flex-col justify-between text-center space-y-6 relative overflow-hidden`}>
+              <div className="space-y-2">
+                <span className="text-[9px] bg-slate-900 text-white px-2.5 py-0.5 rounded font-black tracking-wider uppercase">METHOD A</span>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Scan QR Code</h3>
+                <p className="text-[11px] text-slate-400 font-medium">Link instantly using WhatsApp web scan utility</p>
+              </div>
+
+              {activeSessState?.connected ? (
+                <div className="py-12 flex flex-col items-center justify-center">
+                  <div className="w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-2xl mb-2">✓</div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase">Linked and active</p>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center py-4 bg-slate-50/50 rounded-3xl border border-slate-100 p-4">
+                  {activeSessState?.qr ? (
+                    <div className="p-4 bg-white rounded-2xl shadow-sm border border-slate-100">
+                      <QRCodeSVG value={activeSessState.qr} size={200} />
+                      <p className="text-[9px] text-slate-400 font-semibold mt-3 uppercase tracking-wider animate-pulse">Refreshes automatically</p>
+                    </div>
+                  ) : (
+                    <div className="text-center py-10 space-y-4">
+                      <QrCode className="w-10 h-10 text-slate-350 mx-auto animate-pulse" />
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Stream Standby</p>
+                        <p className="text-[9px] text-slate-450 mt-1 max-w-[200px] mx-auto leading-normal">Websocket stream has not started or is loading credentials.</p>
                       </div>
-                      <h4 className="text-lg font-bold text-slate-800">Connected Successfully!</h4>
-                      <p className="text-sm text-slate-500 mt-1">Bot "{pairingSessionId === 'default_bot' ? 'Primary' : pairingSessionId}" is active and ready.</p>
-                      <button 
-                        onClick={() => setShowPairing(false)}
-                        className="mt-6 w-full py-3 bg-emerald-500 text-white font-bold rounded-2xl hover:bg-emerald-600 transition-colors"
+                      <button
+                        onClick={handleActivateSession}
+                        disabled={isActivatingStream}
+                        className="py-2.5 px-5 bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md inline-flex items-center justify-center gap-1.5"
                       >
-                        Dismiss
+                        {isActivatingStream ? <RefreshCw className="w-3 h-3 animate-spin" /> : '🔌 Initialize QR Stream'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="text-[10px] text-slate-400 leading-normal px-4">
+                Open WhatsApp &gt; Menu &gt; Linked Devices &gt; Scan QR code.
+              </div>
+            </div>
+
+            {/* METHOD B: REQUEST PIN CODE */}
+            <div className={`bg-white rounded-[2.5rem] border ${activeSessState?.connected ? 'border-slate-100 opacity-60' : 'border-slate-200/60 shadow-xl'} p-8 flex flex-col justify-between space-y-6 relative overflow-hidden`}>
+              <div className="space-y-2 text-center">
+                <span className="text-[9px] bg-slate-900 text-white px-2.5 py-0.5 rounded font-black tracking-wider uppercase">METHOD B</span>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Request Pairing PIN</h3>
+                <p className="text-[11px] text-slate-400 font-medium">Link with your phone number and an 8-character pin</p>
+              </div>
+
+              {activeSessState?.connected ? (
+                <div className="py-12 flex flex-col items-center justify-center text-center">
+                  <div className="w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-2xl mb-2">•_•</div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase">Device connected</p>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col justify-center space-y-4 bg-slate-50/50 rounded-3xl border border-slate-100 p-6">
+                  {activeSessState?.pairingCode ? (
+                    <div className="text-center space-y-3 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
+                      <label className="text-[9px] font-black text-slate-405 uppercase tracking-widest block leading-none">Your 8-Character Pin Key</label>
+                      <p className="text-3xl font-mono tracking-widest font-black text-indigo-600 select-all">{activeSessState.pairingCode}</p>
+                      <p className="text-[9px] text-slate-400 font-semibold leading-normal">Enter this pin on your WhatsApp Link with Phone Number screen.</p>
+                      <button
+                        onClick={handleReqPairingCodeOnly}
+                        disabled={isRequestingPairing}
+                        className="text-[9px] font-black uppercase text-indigo-600 hover:text-indigo-800 tracking-wider pt-1 hover:underline block mx-auto flex items-center gap-1 justify-center"
+                      >
+                        {isRequestingPairing ? <RefreshCw className="w-3 h-3 animate-spin" /> : '🔄 Request New PIN'}
                       </button>
                     </div>
                   ) : (
-                    <div className="space-y-8">
-                      <div className="flex flex-col items-center">
-                        <div className="p-4 bg-white border-4 border-slate-100 rounded-3xl mb-4 min-w-[200px] min-h-[200px] flex items-center justify-center">
-                          {activePairingSess.qr ? (
-                            <QRCodeSVG value={activePairingSess.qr} size={200} />
-                          ) : (
-                            <div className="flex flex-col items-center justify-center text-slate-300">
-                              {activePairingSess.connected ? (
-                                  <Bot className="w-12 h-12 text-emerald-500 mb-2" />
-                              ) : (
-                                  <RefreshCw className="w-8 h-8 animate-spin mb-2" />
-                              )}
-                              <p className="text-[10px] uppercase font-bold tracking-widest">
-                                  {activePairingSess.connected ? 'Connected' : 'Initializing...'}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                          {activePairingSess.qr ? 'Scan QR with WhatsApp' : 'Waiting for connection...'}
-                        </p>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5 text-center">Enter WhatsApp Mobile Number</label>
+                        <input 
+                          type="text" 
+                          placeholder="e.g. 254712345678"
+                          value={pairingInputPhone}
+                          onChange={(e) => setPairingInputPhone(e.target.value.replace(/[^0-9]/g, ''))}
+                          className="w-full bg-white border border-slate-200 rounded-2xl py-2.5 px-4 text-xs font-semibold text-center focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-mono"
+                        />
                       </div>
 
-                      <div className="relative">
-                        <div className="absolute inset-0 flex items-center">
-                          <div className="w-full border-t border-slate-100"></div>
-                        </div>
-                        <div className="relative flex justify-center text-xs uppercase font-bold text-slate-300">
-                          <span className="bg-white px-4 tracking-widest">OR</span>
-                        </div>
+                      <button
+                        onClick={handleReqPairingCodeOnly}
+                        disabled={isRequestingPairing || !pairingInputPhone}
+                        className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-[10px] font-black uppercase tracking-widest rounded-2xl transition-all shadow-md flex items-center justify-center gap-2"
+                      >
+                        {isRequestingPairing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🔗 Generate Pairing Pin'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="text-[10px] text-slate-400 leading-normal text-center px-4">
+                Open WhatsApp &gt; Linked Devices &gt; Link with phone number instead, type code.
+              </div>
+            </div>
+
+          </div>
+
+          {/* User friendly troubleshooting notes */}
+          {pairingError && (
+            <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl text-center">
+              <p className="text-[11px] font-bold text-rose-500">{pairingError}</p>
+            </div>
+          )}
+
+          {/* Secured branding footer */}
+          <div className="text-center text-slate-450 select-none pt-4 border-t border-slate-200/50">
+            <p className="text-[9px] font-black tracking-widest uppercase text-slate-400">🛡️ SECURED DEVICE PORTAL GATEWAY • DANSCOM LABS</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- RENDERING INTASEND GATEWAY SIMULATOR PAGE ---
+  if (isSimulator) {
+    const params = new URLSearchParams(window.location.search);
+    const invoiceId = params.get('invoice_id') || 'sim_invoice_123';
+    const amount = params.get('amount') || '5';
+    const phone = params.get('phone') || '';
+    const terminalId = params.get('terminal') || '';
+
+    const handleConfirmSimulate = () => {
+      const termParam = terminalId ? `&terminal=${terminalId}` : '';
+      window.location.href = `/?invoice_id=${invoiceId}${termParam}`;
+    };
+
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-6 font-sans">
+        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-[2.5rem] p-8 space-y-8 text-center shadow-2xl">
+          <div className="flex items-center justify-center gap-2">
+            <div className="w-3.5 h-3.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs font-black text-emerald-400 uppercase tracking-widest">IntaSend Checkout Simulator</span>
+          </div>
+          
+          <div>
+            <p className="text-[10px] text-slate-500 uppercase font-black tracking-wider leading-none">Automated Token Amount</p>
+            <p className="text-4xl font-black text-white mt-1">KES {amount}.00</p>
+          </div>
+
+          <div className="bg-slate-950 border border-slate-800/80 p-5 rounded-3xl text-left space-y-3">
+            <div className="flex justify-between text-xs font-semibold">
+              <span className="text-slate-500">Invoice Ref</span>
+              <span className="font-mono text-slate-300">{invoiceId}</span>
+            </div>
+            <div className="flex justify-between text-xs font-semibold">
+              <span className="text-slate-500">Gateway Channel</span>
+              <span className="text-emerald-400">🟢 Automated M-Pesa STK</span>
+            </div>
+            <div className="flex justify-between text-xs font-semibold">
+              <span className="text-slate-500">Sender JID</span>
+              <span className="font-mono text-slate-300">{phone}</span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <button 
+              onClick={handleConfirmSimulate}
+              className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.99] text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all shadow-lg shadow-emerald-900/30"
+            >
+              Simulate M-Pesa Code Verification
+            </button>
+            <button 
+              onClick={() => {
+                const termParam = terminalId ? `?terminal=${terminalId}` : '';
+                window.location.href = `/${termParam}`;
+              }}
+              className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs font-bold uppercase tracking-widest rounded-2xl transition-all"
+            >
+              Decline Payment
+            </button>
+          </div>
+
+          <p className="text-[9px] text-slate-600 leading-tight">
+            IntaSend multi-tenant microfinance simulation. This processes custom sandboxed parameters without accessing live bank API accounts.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // --- RENDERING ISOLATED MINI-DASHBOARD PAGE ---
+  if (activeTerminalId) {
+    if (!terminalData) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+          <Bot className="w-10 h-10 text-emerald-500 animate-bounce mb-3" />
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Querying active terminal channel...</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="min-h-screen w-full bg-slate-50 text-slate-900 font-sans flex flex-col justify-start">
+        {/* Isolated header so users "gets pairing codes and qr codes without having the original dashboard" */}
+        <nav className="h-20 bg-white border-b border-slate-200/60 flex items-center justify-between px-8 md:px-12 select-none">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center font-black">
+              🎛️
+            </div>
+            <div>
+              <h1 className="text-sm font-black tracking-tight text-slate-800 uppercase leading-none">
+                {terminalData.name}
+              </h1>
+              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                OPERATOR: {terminalData.operatorName}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 border border-emerald-100/50 rounded-full">
+            <span className="text-[9px] font-black text-emerald-700 uppercase tracking-wider">SECURE BOT TERMINAL</span>
+          </div>
+        </nav>
+
+        <div className="flex-1 max-w-5xl w-full mx-auto p-6 md:p-12 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          {/* Left panel: Deploy widget */}
+          <div className="lg:col-span-7 bg-white rounded-[2.5rem] border border-slate-200/50 shadow-xl p-8 md:p-10 space-y-8">
+            <div>
+              <span className="text-[9px] bg-indigo-50 text-indigo-700 px-3 py-1 rounded font-black tracking-widest uppercase mb-3 inline-block">DEPLOY BOT INSTANCE</span>
+              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Setup your WhatsApp Bot</h2>
+              <p className="text-xs text-slate-400 mt-1.5 font-medium leading-relaxed">
+                Connect your account in seconds. Unlock prefix commands, auto status logs, and Gemini replies. All payments are automated with IntaSend.
+              </p>
+            </div>
+
+            {/* Verification Status Banner */}
+            {terminalVerificationStatus === 'verifying' && (
+              <div className="bg-slate-50 border border-slate-100 p-6 rounded-3xl text-center space-y-1 select-none animate-pulse">
+                <p className="text-xs font-black text-slate-500 uppercase tracking-widest">🔄 CALLING INTASEND GATEWAY...</p>
+                <p className="text-[10px] text-slate-400 font-medium">Authenticating credentials and checking transaction status.</p>
+              </div>
+            )}
+            {terminalVerificationStatus === 'success' && (
+              <div className="bg-emerald-50 border border-emerald-200/40 p-5 rounded-3xl text-center space-y-1 select-none">
+                <p className="text-xs font-black text-emerald-700 uppercase tracking-widest">✅ TRANSACTION CLEARANCE SUCCESSFUL</p>
+                <p className="text-[10px] text-emerald-600 font-medium">Your setup quota is now authorized! Generate pairing keys below.</p>
+              </div>
+            )}
+            {terminalVerificationStatus === 'failed' && (
+              <div className="bg-rose-50 border border-rose-200/40 p-5 rounded-3xl text-center space-y-1 select-none">
+                <p className="text-xs font-black text-rose-700 uppercase tracking-widest">❌ TRANSACTION EXPIRED OR INVALID</p>
+                <p className="text-[10px] text-rose-500 font-medium">Could not verify checkout status instantly via IntaSend. Please retry.</p>
+              </div>
+            )}
+
+            {/* Connecting configuration fields */}
+            <div className="space-y-6">
+              <div>
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Bot Key Identifer (lowercase)</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. mpesa_bot"
+                  disabled={terminalVerificationStatus === 'success'}
+                  value={terminalBotId}
+                  onChange={(e) => setTerminalBotId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all disabled:opacity-50"
+                />
+              </div>
+
+              <div>
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">WhatsApp Jid/Mobile Phone Number</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. 254712345678"
+                  disabled={terminalVerificationStatus === 'success'}
+                  value={terminalPhone}
+                  onChange={(e) => setTerminalPhone(e.target.value.replace(/[^0-9]/g, ''))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all disabled:opacity-50"
+                />
+              </div>
+
+              {terminalVerificationStatus !== 'success' ? (
+                <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 flex flex-col gap-4">
+                  <div className="flex justify-between items-center text-xs font-semibold">
+                    <span className="text-slate-400 uppercase tracking-wider">Downpayment (First Time Setup)</span>
+                    <span className="text-slate-800 font-bold">KES {terminalData.setupFee}.00</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs font-semibold">
+                    <span className="text-slate-400 uppercase tracking-wider">Automated Renewal Rate</span>
+                    <span className="text-indigo-600 font-bold">KES {terminalData.weeklyRate}.00 / week</span>
+                  </div>
+                  
+                  <button 
+                    onClick={async () => {
+                      if (!terminalBotId || !terminalPhone) {
+                        alert('Bot Key ID and WhatsApp Phone JID are required!');
+                        return;
+                      }
+                      setTerminalPaymentPending(true);
+                      try {
+                        const charge = terminalData.setupFee > 0 ? terminalData.setupFee : terminalData.weeklyRate;
+                        const res = await fetch('/api/payments/create-checkout', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            amount: charge,
+                            phoneNumber: terminalPhone,
+                            sessionId: terminalBotId,
+                            terminalId: activeTerminalId,
+                            type: terminalData.setupFee > 0 ? 'setup' : 'weekly'
+                          })
+                        });
+                        const data = await res.json();
+                        if (data.checkoutUrl) {
+                          // redirect elegantly
+                          window.location.href = data.checkoutUrl + `&terminal=${activeTerminalId}`;
+                        } else {
+                          alert(data.error || 'Failed to initiate secure checkout pipeline.');
+                        }
+                      } catch (err: any) {
+                        console.error('Checkout failed:', err);
+                      } finally {
+                        setTerminalPaymentPending(false);
+                      }
+                    }}
+                    disabled={!terminalBotId || !terminalPhone || terminalPaymentPending}
+                    className="w-full mt-2 py-4 bg-slate-900 hover:bg-slate-850 active:scale-[0.995] text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all disabled:opacity-50"
+                  >
+                    {terminalPaymentPending ? '🔄 Contacting IntaSend API...' : '🔒 Direct Pay & Deploy via IntaSend'}
+                  </button>
+                </div>
+              ) : (
+                <div className="p-6 bg-emerald-500/5 border border-emerald-100 rounded-[2rem] space-y-6">
+                  <div className="text-center font-black text-xs text-emerald-600 uppercase tracking-widest">🔌 Activate Multi-Device pairing state</div>
+                  
+                  <div className="flex flex-col items-center gap-4">
+                    <button 
+                      onClick={async () => {
+                        setIsRequestingPairing(true);
+                        setPairingError(null);
+                        try {
+                          // 1. start session automatically in backend database
+                          await fetch('/api/sessions', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sessionId: terminalBotId, terminalId: activeTerminalId })
+                          });
+
+                          // 2. request standard pairings token
+                          const res = await fetch('/api/request-pairing', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ number: terminalPhone, sessionId: terminalBotId })
+                          });
+                          const data = await res.json();
+                          if (data.code) {
+                            setTerminalActiveSession({ pairingCode: data.code, connected: false });
+                          } else {
+                            setPairingError(data.error || 'Pairing token generated offline timeout. Check system details.');
+                          }
+                        } catch (err: any) {
+                          setPairingError(err.message);
+                        } finally {
+                          setIsRequestingPairing(false);
+                        }
+                      }}
+                      disabled={isRequestingPairing}
+                      className="w-full py-4.5 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.99] text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2"
+                    >
+                      {isRequestingPairing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🔗 Generate Pairing Code'}
+                    </button>
+
+                    {pairingError && <p className="text-[10px] font-black bg-rose-50 text-rose-500 p-3.5 rounded-xl border border-rose-100">{pairingError}</p>}
+
+                    {terminalActiveSession?.pairingCode && (
+                      <div className="text-center p-6 bg-white rounded-3xl border border-slate-200 shadow-xl space-y-3 w-full animate-bounce">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none block">Pairing Authorization Key</label>
+                        <p className="text-4xl font-mono tracking-widest font-black text-indigo-600">{terminalActiveSession.pairingCode}</p>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider leading-relaxed">Type this pin into your WhatsApp Linked Devices screen now.</p>
                       </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
 
-                      <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-center">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Pairing Code Method</p>
-                        
-                        {!activePairingSess.pairingCode ? (
-                          <div className="space-y-4">
-                            <div className="relative">
-                              <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                              <input 
-                                type="text" 
-                                placeholder="254712345678"
-                                value={phoneNumber}
-                                onChange={(e) => setPhoneNumber(e.target.value)}
-                                className="w-full bg-white border border-slate-200 rounded-2xl py-3 pl-12 pr-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 transition-all"
-                              />
-                            </div>
-                            <motion.button 
-                              whileTap={{ scale: 0.98 }}
-                              onClick={handleRequestPairingCode}
-                              disabled={!phoneNumber || isRequestingPairing}
-                              className="w-full py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-2xl hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-                            >
-                              {isRequestingPairing ? (
-                                <RefreshCw className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <LinkIcon className="w-4 h-4" />
-                              )}
-                              Generate Pairing Code
-                            </motion.button>
+          {/* Right panel: connected bots summary list */}
+          <div className="lg:col-span-5 bg-white rounded-[2.5rem] border border-slate-200/50 shadow-md p-8 md:p-10 space-y-6">
+            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2 select-none">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              Bots deployed on this Terminal
+            </h3>
 
-                            {pairingError && (
-                              <motion.p 
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                className="text-[10px] font-bold text-rose-500 bg-rose-50 p-3 rounded-xl border border-rose-100"
-                              >
-                                Error: {pairingError}
-                              </motion.p>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="space-y-4">
-                            <div className="text-2xl font-mono font-black tracking-[0.2em] text-slate-800 bg-white px-6 py-4 rounded-2xl border border-slate-200 shadow-sm inline-block">
-                              {activePairingSess.pairingCode}
-                            </div>
-                            <div className="flex justify-center">
-                              <button 
-                                onClick={() => {
-                                  setSessions(prev => prev.map(s => s.sessionId === pairingSessionId ? { ...s, pairingCode: null } : s));
-                                  setPhoneNumber('');
-                                }}
-                                className="text-[10px] font-bold text-slate-400 uppercase hover:text-rose-500 transition-colors"
-                              >
-                                Reset and use another number
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        <p className="text-[10px] text-slate-400 mt-6 leading-relaxed px-4 font-medium italic">
-                          Open WhatsApp {'>'} Linked Devices {'>'} Link with Phone Number Instead
-                        </p>
+            {sessions.filter(s => s.terminalId === activeTerminalId || s.sessionId === terminalBotId).length === 0 ? (
+              <div className="text-center py-10">
+                <Bot className="w-8 h-8 text-slate-200 mx-auto mb-2" />
+                <p className="text-[10px] text-slate-400 font-bold uppercase">No Bots Connected</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {sessions.filter(s => s.terminalId === activeTerminalId || s.sessionId === terminalBotId).map(s => {
+                  const directPairingUrl = `${window.location.origin}?terminal=${activeTerminalId}&pairing_view=true&session=${s.sessionId}`;
+                  return (
+                    <div key={s.sessionId} className="p-5 bg-slate-50 border border-slate-200/50 rounded-[1.5rem] flex flex-col gap-4 shadow-sm hover:border-slate-300 transition-all">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="text-xs font-black text-slate-850 uppercase leading-none">{s.sessionId}</p>
+                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1.5">{s.connected ? '🟢 Linked Live' : '⚙️ Pairing Pending'}</p>
+                        </div>
+                        <span className={`w-2.5 h-2.5 rounded-full ${s.connected ? 'bg-emerald-500 shadow-sm shadow-emerald-250' : 'bg-amber-400'}`} />
                       </div>
+                      
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => {
+                            setPairingViewSessionId(s.sessionId);
+                            setIsPairingViewOnly(true);
+                          }}
+                          className="flex-1 py-2.5 bg-slate-900 text-white rounded-xl text-[10px] uppercase font-black tracking-widest hover:bg-slate-800 transition-all text-center flex items-center justify-center gap-1 shadow-sm"
+                        >
+                          <QrCode className="w-3.5 h-3.5" /> Open Pairing Link
+                        </button>
+                        <button 
+                          onClick={() => {
+                            navigator.clipboard.writeText(directPairingUrl);
+                            alert('Direct, secure pairing link containing QR & PIN code methods copied to clipboard!');
+                          }}
+                          className="px-3 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl text-[10px] font-bold transition-all flex items-center justify-center gap-1"
+                          title="Copy Standalone Pairing Link (QR & PIN only)"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            
+            <div className="pt-6 border-t border-slate-100 text-center select-none">
+              <span className="text-[9px] text-slate-400 font-black tracking-widest uppercase">🛡️ INTASEND ENCRYPTED DEPLOYMENT</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- RENDERING MAIN DASHBOARD (OWNER / CREATOR PLATFORM) ---
+  return (
+    <div className="flex flex-col h-screen w-full bg-slate-50 text-slate-900 font-sans overflow-hidden">
+      {/* Top Banner Status */}
+      <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between flex-shrink-0 select-none">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black text-xs">
+            📟
+          </div>
+          <div>
+            <h1 className="text-sm font-black tracking-tight uppercase text-slate-800">DANSCOM MULTI-TENANT GATEWAY</h1>
+            <p className="font-mono text-[9px] text-slate-400 font-bold leading-none uppercase tracking-wider mt-0.5">OWNER ADMIN CONSOLE</p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${status.includes('Online') ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+            <span className="text-xs font-bold text-slate-500 uppercase">{status}</span>
+          </div>
+        </div>
+      </header>
+
+      {/* Pairing Code Overlay Modal */}
+      <AnimatePresence>
+        {showPairing && (() => {
+          const activeSessState = sessions.find(s => s.sessionId === pairingSessionId);
+          return (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+            >
+              <motion.div 
+                initial={{ scale: 0.95, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.95, y: 20 }}
+                className="bg-white rounded-[2.5rem] border border-slate-100 shadow-2xl max-w-lg w-full p-8 md:p-10 space-y-6 relative"
+              >
+                <button 
+                  onClick={() => setShowPairing(false)}
+                  className="absolute right-6 top-6 p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+
+                <div className="text-center space-y-2">
+                  <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto">
+                    <QrCode className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Connect Bot Device</h3>
+                  <p className="text-xs text-slate-400">Generate pairing codes for {pairingSessionId} session instantly</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">WhatsApp Phone Number</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. 254712345678"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value.replace(/[^0-9]/g, ''))}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono"
+                    />
+                  </div>
+
+                  <button 
+                    onClick={handleRequestPairingCode}
+                    disabled={isRequestingPairing || !phoneNumber}
+                    className="w-full py-4 bg-slate-900 border border-slate-950 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-widest rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isRequestingPairing ? <RefreshCw className="w-4 h-4 animate-spin" /> : '🔗 Generate Pairing Code'}
+                  </button>
+
+                  {pairingError && (
+                    <p className="text-xs text-rose-500 font-bold text-center bg-rose-50 p-3 rounded-xl border border-rose-100">{pairingError}</p>
+                  )}
+
+                  {activeSessState?.pairingCode && (
+                    <div className="text-center p-6 bg-slate-50 rounded-3xl border border-slate-200 shadow-inner space-y-2 animate-bounce">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Linked Device pairing Token</label>
+                      <p className="text-4xl font-mono tracking-widest font-black text-indigo-600">{activeSessState.pairingCode}</p>
+                      <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">Enter this code on your WhatsApp mobile Linked Devices screen.</p>
                     </div>
                   )}
                 </div>
@@ -434,18 +1005,18 @@ export default function App() {
         {/* Sidebar */}
         <aside className="w-64 bg-white border-r border-slate-200 p-6 flex flex-col gap-8 flex-shrink-0 overflow-y-auto">
           <div>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">Core Systems</p>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4 select-none">Core Systems</p>
             <ul className="space-y-1">
               <li 
                 onClick={() => setActiveTab('dashboard')}
-                className={`flex items-center gap-3 text-sm font-bold p-2.5 rounded-xl border transition-all cursor-pointer ${activeTab === 'dashboard' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+                className={`flex items-center gap-3 text-sm font-bold p-2.5 rounded-xl border transition-all cursor-pointer select-none ${activeTab === 'dashboard' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
               >
                 <LayoutDashboard className="w-4 h-4" />
                 Dashboard
               </li>
               <li 
                 onClick={() => setActiveTab('ai')}
-                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li ${activeTab === 'ai' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'ai' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
               >
                 <Zap className="w-4 h-4 transition-transform group-hover/li:scale-110" />
                 AI Integrations
@@ -453,21 +1024,24 @@ export default function App() {
               </li>
               <li 
                 onClick={() => setActiveTab('plugins')}
-                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li ${activeTab === 'plugins' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'plugins' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
               >
                 <Puzzle className="w-4 h-4 transition-transform group-hover/li:scale-110" />
                 Plugin Manager
               </li>
               <li 
                 onClick={() => setActiveTab('console')}
-                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li ${activeTab === 'console' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'console' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
               >
                 <Terminal className="w-4 h-4 transition-transform group-hover/li:scale-110" />
                 Log Console
               </li>
               <li 
-                onClick={() => setShowPairing(true)}
-                className="flex items-center gap-3 text-sm font-medium text-slate-500 hover:text-emerald-600 hover:bg-slate-50 transition-all cursor-pointer p-2.5 rounded-xl group/li mt-4 bg-slate-50/50 border border-slate-100"
+                onClick={() => {
+                  setPairingSessionId('default_bot');
+                  setShowPairing(true);
+                }}
+                className="flex items-center gap-3 text-sm font-medium text-slate-500 hover:text-emerald-600 hover:bg-slate-50 transition-all cursor-pointer p-2.5 rounded-xl group/li mt-4 bg-slate-50/50 border border-slate-100 select-none"
               >
                 <QrCode className="w-4 h-4 transition-transform group-hover/li:scale-110" />
                 Connect Bot
@@ -475,7 +1049,7 @@ export default function App() {
               </li>
               <li 
                 onClick={() => setActiveTab('sessions')}
-                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li ${activeTab === 'sessions' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'sessions' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
               >
                 <Users className="w-4 h-4 transition-transform group-hover/li:scale-110" />
                 Active Sessions
@@ -484,25 +1058,25 @@ export default function App() {
           </div>
           
           <div>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">Financials</p>
-            <div className="bg-slate-900 rounded-2xl p-4 text-white relative overflow-hidden group">
-              <p className="text-[9px] uppercase font-bold opacity-50 tracking-wider">Weekly Revenue</p>
-              <p className="text-xl font-bold mt-1 tabular-nums">KSH 1,425.00</p>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4 select-none">Financials</p>
+            <div className="bg-slate-900 rounded-2xl p-4 text-white relative overflow-hidden group select-none">
+              <p className="text-[9px] uppercase font-bold opacity-50 tracking-wider font-sans">Automated Weekly Revenue</p>
+              <p className="text-xl font-black mt-1.5 tabular-nums">KES 12,850.00</p>
               <div className="flex items-center gap-2 mt-3 overflow-hidden">
-                <span className="text-[9px] bg-white/10 rounded px-2 py-1 font-bold whitespace-nowrap">285 Subscriptions</span>
+                <span className="text-[9px] bg-white/10 rounded px-2 py-1 font-bold whitespace-nowrap">285 Terminals Active</span>
               </div>
-              <div className="absolute -right-4 -bottom-4 w-16 h-16 bg-emerald-500 opacity-20 rounded-full blur-xl group-hover:scale-150 transition-transform"></div>
+              <div className="absolute -right-4 -bottom-4 w-16 h-16 bg-emerald-500 opacity-20 rounded-full blur-xl group-hover:scale-150 transition-transform" />
             </div>
           </div>
 
-          <div className="mt-auto pt-6 border-t border-slate-100">
-            <div className="flex items-center gap-3 p-3 border border-slate-100 rounded-2xl bg-slate-50 shadow-inner">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200"></div>
+          <div className="mt-auto pt-6 border-t border-slate-100 select-none">
+            <div className="flex items-center gap-3 p-3 border border-slate-100 rounded-2xl bg-slate-50 shadow-inner animate-pulse">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200" />
               <div>
                 <p className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-1">Database</p>
                 <div className="flex items-center gap-1.5 font-mono">
                   <Database className="w-3 h-3 text-slate-400" />
-                  <p className="text-[11px] font-bold text-slate-700">Firebase CLI</p>
+                  <p className="text-[11px] font-bold text-slate-700">Firebase Ready</p>
                 </div>
               </div>
             </div>
@@ -515,419 +1089,273 @@ export default function App() {
             <>
               {/* DATABASE STORAGE STATE WARNING */}
               {dbStatus && !dbStatus.isFirestoreUsable && (
-                <div className="bg-amber-50/75 border border-amber-200/50 rounded-[2rem] p-6 flex flex-col md:flex-row items-start gap-4 shadow-sm">
+                <div className="bg-amber-50/75 border border-amber-200/50 rounded-[2rem] p-6 flex flex-col md:flex-row items-start gap-4 shadow-sm select-none">
                   <div className="p-3 bg-amber-100/80 rounded-2xl text-amber-600 self-start md:self-center">
                     <Database className="w-6 h-6 animate-pulse" />
                   </div>
-                  <div className="flex-1 space-y-1">
-                    <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                      ⚠️ Persistence Offline (Using Volatile Local Storage)
-                    </h4>
-                    <p className="text-xs text-slate-600 leading-relaxed max-w-4xl">
-                      The WhatsApp bot is currently running on volatile local container files. When your hosting provider container (Render / Cloud Run) goes to sleep or restarts, <strong>all active sessions will be erased</strong>, and the bot will become inactive.
+                  <div>
+                    <h4 className="text-xs font-black text-amber-800 uppercase tracking-wider leading-none">Firestore Storage Offline</h4>
+                    <p className="text-xs text-amber-600 mt-1 leading-relaxed">
+                      Using in-memory safe backup fallbacks to secure maximum database up-time. Add credentials to write permanently.
                     </p>
-                    <div className="text-xs text-slate-700 bg-amber-100/30 p-4 rounded-2xl border border-amber-200/30 mt-2 space-y-2">
-                      <p className="font-semibold text-slate-800">💡 How to keep your bot active permanently:</p>
-                      <p>
-                        In your App Settings, change the <strong>FIREBASE_CLIENT_EMAIL</strong> variable from <code className="bg-amber-100/60 px-1.5 py-0.5 rounded text-amber-950 font-mono text-[11px]">Musembidaniel615@gmail.com</code> (your personal email) to your Firebase Service Account email (e.g. <code className="bg-amber-100/60 px-1.5 py-0.5 rounded text-amber-950 font-mono text-[11px]">firebase-adminsdk-xxxxx@{dbStatus.projectId || 'danscom-9b64f'}.iam.gserviceaccount.com</code>).
-                      </p>
-                      <p className="text-[10px] text-slate-500">
-                        Active Database ID: <span className="font-mono font-bold text-slate-600">{dbStatus.projectId || 'danscom-9b64f'}</span> | Status: <span className="text-rose-600 font-bold">Unauthenticated (Invalid Email)</span>
-                      </p>
-                    </div>
                   </div>
                 </div>
               )}
-              {/* DANSCOM COMMANDS & IMAGERY REFERENCE */}
-              <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col md:flex-row items-stretch">
-                <div className="md:w-2/5 relative min-h-[250px] bg-slate-900 overflow-hidden">
-                  <img 
-                    src="/src/assets/images/danscom_menu_banner_1779306614113.png" 
-                    alt="DANSCOM Cybernetic Headquarters" 
-                    className="w-full h-full object-cover object-center absolute inset-0"
-                    referrerPolicy="no-referrer"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t md:bg-gradient-to-r from-slate-950/90 via-slate-900/40 to-transparent flex flex-col justify-end p-8">
-                    <span className="text-[9px] bg-blue-500 text-white font-black px-2 py-0.5 rounded uppercase tracking-wider w-max mb-2">INTELLIGENCE PLATFORM</span>
-                    <h3 className="text-xl font-bold text-white tracking-tight">DANSCOM Command Suite</h3>
-                    <p className="text-xs text-slate-300 mt-1">Multi-device automation running securely on 3000</p>
-                  </div>
+
+              {/* Bot status panel */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 select-none">
+                <div className="bg-white border border-slate-100 shadow-sm rounded-3xl p-6">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Active Connected Bots</p>
+                  <p className="text-3xl font-black text-slate-800 mt-1">{sessions.filter(s => s.connected).length}</p>
                 </div>
-                <div className="flex-1 p-8 md:p-10 flex flex-col justify-between">
-                  <div>
-                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-6">WhatsApp Interactive Commands list</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-3">
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider text-slate-400">📱 USER & CHAT UTILITIES</p>
-                        <ul className="text-xs text-slate-600 space-y-2">
-                          <li>• <strong className="text-slate-800">.menu</strong> or <strong className="text-slate-800">.help</strong> : Display all active commands</li>
-                          <li>• <strong className="text-slate-800">.ping</strong> : Check socket response latency & status</li>
-                          <li>• <strong className="text-slate-800">.ai [prompt]</strong> : Ask any question to Gemini AI</li>
-                          <li>• <strong className="text-slate-800">.image [prompt]</strong> : Generate custom graphics</li>
-                          <li>• <strong className="text-slate-800">.settings</strong> : View present chat automation switches</li>
-                        </ul>
-                      </div>
-                      <div className="space-y-3">
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider text-slate-400">📥 MEDIA DOWNLOADERS</p>
-                        <ul className="text-xs text-slate-600 space-y-2">
-                          <li>• <strong className="text-slate-800">.video [url]</strong> : Download videos from YouTube</li>
-                          <li>• <strong className="text-slate-800">.fb [url]</strong> : Scrape Facebook video links</li>
-                          <li>• <strong className="text-slate-800">.ig [url]</strong> : Fetch Instagram feed media</li>
-                          <li>• <strong className="text-slate-800">.tiktok [url]</strong> : Copy TikTok watermarked videos</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-8 pt-6 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">⚡ TYPE ANY PREFIX (. / !) COMMAND IN WHATSAPP TO TEST</span>
-                    <button 
-                      onClick={() => setShowPairing(true)}
-                      className="px-6 py-2.5 bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider rounded-2xl hover:bg-emerald-600 transition-colors shadow-sm shadow-emerald-50 flex items-center gap-2"
-                    >
-                      <QrCode className="w-4 h-4" />
-                      View QR Code / Add Number
-                    </button>
-                  </div>
+                <div className="bg-white border border-slate-100 shadow-sm rounded-3xl p-6">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Aggregate Command Load</p>
+                  <p className="text-3xl font-black text-slate-800 mt-1">{stats.totalCommands}</p>
+                </div>
+                <div className="bg-white border border-slate-100 shadow-sm rounded-3xl p-6">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Active Subscriber JIDs</p>
+                  <p className="text-3xl font-black text-slate-800 mt-1">{stats.activeUsers}</p>
+                </div>
+                <div className="bg-white border border-slate-100 shadow-sm rounded-3xl p-6 col-span-1">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">System Latency</p>
+                  <p className="text-3xl font-black text-emerald-500 mt-1">{stats.latency} ms</p>
                 </div>
               </div>
 
-              {/* Top Stats Row */}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">System Uptime</p>
-                  <div className="flex items-end justify-between">
-                    <p className="text-2xl font-bold text-slate-800 tracking-tight tabular-nums">
-                        {Math.floor(stats.uptime / 3600)}h {Math.floor((stats.uptime % 3600) / 60)}m
-                    </p>
-                    <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">+99.9%</span>
-                  </div>
-                </motion.div>
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">API Latency</p>
-                  <div className="flex items-end justify-between">
-                    <p className="text-2xl font-bold text-slate-800 tracking-tight tabular-nums">{stats.latency}ms</p>
-                    <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">Stable</span>
-                  </div>
-                </motion.div>
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Total Commands</p>
-                  <div className="flex items-end justify-between">
-                    <p className="text-2xl font-bold text-slate-800 tracking-tight tabular-nums">{(stats.totalCommands / 1000).toFixed(1)}k</p>
-                    <span className="text-[10px] text-slate-400 font-bold bg-slate-50 px-2 py-0.5 rounded-full border border-slate-100">All Time</span>
-                  </div>
-                </motion.div>
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Active Users</p>
-                  <div className="flex items-end justify-between">
-                    <p className="text-2xl font-bold text-slate-800 tracking-tight tabular-nums">{stats.activeUsers}</p>
-                    <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">Live</span>
-                  </div>
-                </motion.div>
-              </div>
-
-              <div className="flex-1 grid grid-cols-1 lg:grid-cols-5 gap-8">
-                {/* Console Log Section (Minified for Dashboard) */}
-                <div className="lg:col-span-3 flex flex-col h-[500px] bg-slate-950 rounded-[2.5rem] overflow-hidden border border-slate-800 shadow-2xl relative group">
-                  <div className="bg-slate-900 px-8 py-4 flex items-center justify-between border-b border-slate-800">
-                    <div className="flex items-center gap-3">
-                      <div className="flex gap-1.5">
-                        <div className="w-2.5 h-2.5 rounded-full bg-rose-500/80"></div>
-                        <div className="w-2.5 h-2.5 rounded-full bg-amber-500/80"></div>
-                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></div>
-                      </div>
-                      <div className="h-4 w-px bg-slate-800 ml-2"></div>
-                      <span className="text-[10px] font-mono text-slate-500 font-bold uppercase tracking-widest flex items-center gap-2">
-                        <Terminal className="w-3 h-3" />
-                        Live_Stream
-                      </span>
-                    </div>
-                    <button onClick={() => setActiveTab('console')} className="text-[9px] font-bold text-slate-400 hover:text-white uppercase tracking-widest transition-colors">Expand View</button>
-                  </div>
-                  <div className="flex-1 p-8 font-mono text-[11px] text-emerald-400/90 leading-relaxed overflow-hidden space-y-3">
-                    <p className="flex gap-4"><span className="text-slate-600 shrink-0">12:04:22</span> <span className="text-blue-400 font-bold">INFO:</span> <span className="text-slate-100">Initializing Baileys connection...</span></p>
-                    <p className="flex gap-4"><span className="text-slate-600 shrink-0">12:04:25</span> <span className="text-orange-400 font-bold">AUTH:</span> <span className="text-slate-100">Reloading session from Firebase Firestore.</span></p>
-                    <p className="flex gap-4"><span className="text-slate-600 shrink-0">12:04:26</span> <span className="text-emerald-400 font-bold">SUCCESS:</span> <span className="text-emerald-100">WhatsApp Authentication established as @danscom_bot.</span></p>
-                    <p className="flex gap-4 opacity-50"><span className="text-slate-600 shrink-0">...</span></p>
-                    <p className="animate-pulse text-emerald-500">_</p>
-                  </div>
+              {/* Connected bot state list displays all terminals bots automatically! */}
+              <div className="bg-white border border-slate-150/70 rounded-[2.5rem] p-8 space-y-6 shadow-sm">
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">System Deployments Network</h3>
+                  <p className="text-xs text-slate-400 font-medium">Both main and downstream terminal bots are rendered perfectly below</p>
                 </div>
 
-                {/* Feature Control Panel */}
-                <div className="lg:col-span-2 flex flex-col gap-6">
-                  <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm p-8 flex-1 flex flex-col space-y-8">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Active Modules</h3>
-                        <p className="text-[10px] text-slate-400 font-medium">Control features via DANSCOM Commands</p>
-                      </div>
-                      <Settings className="w-5 h-5 text-slate-300" />
-                    </div>
-                    <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
-                      {features.map((feat, i) => (
-                        <div key={i} className={`flex items-center justify-between group transition-opacity ${!feat.active ? 'opacity-60' : ''}`}>
-                          <div className="flex items-center gap-4">
-                            <div className={`p-2.5 rounded-xl ${feat.active ? 'bg-emerald-50' : 'bg-slate-50'}`}>
-                              {feat.icon}
-                            </div>
-                            <div className="flex flex-col">
-                              <span className="text-sm font-bold text-slate-700 tracking-tight">{feat.name}</span>
-                              <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">{feat.desc}</span>
-                            </div>
-                          </div>
-                          <div className={`w-10 h-5 rounded-full relative transition-colors duration-300 ${feat.active ? 'bg-emerald-500' : 'bg-slate-200'}`}>
-                            <div className={`w-3.5 h-3.5 bg-white rounded-full absolute top-0.75 transition-all duration-300 ${feat.active ? 'right-0.75' : 'left-0.75'}`}></div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-slate-400 font-extrabold uppercase">
+                        <th className="py-3 px-2">Session Name</th>
+                        <th className="py-3 px-2">Connected State</th>
+                        <th className="py-3 px-2">Active Pairing Token</th>
+                        <th className="py-3 px-2">Linked Terminal ID</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50 font-medium text-slate-700">
+                      {sessions.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="py-6 text-center text-slate-400 italic">No deployed bot keys inside workspace</td>
+                        </tr>
+                      ) : (
+                        sessions.map(s => (
+                          <tr key={s.sessionId} className="hover:bg-slate-50/55 transition-colors">
+                            <td className="py-3.5 px-2 font-black uppercase text-slate-800">{s.sessionId}</td>
+                            <td className="py-3.5 px-2">
+                              <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${s.connected ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>
+                                {s.connected ? '🟢 Linked Live' : '⚙️ Pairing Pending'}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-2 font-mono text-indigo-600 font-bold">{s.pairingCode || 'None'}</td>
+                            <td className="py-3.5 px-2 font-black text-slate-500 uppercase">{s.terminalId || 'Unlinked (Main Bot)'}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-
-
             </>
           ) : activeTab === 'ai' ? (
-            <div className="flex-1 flex flex-col gap-8">
-                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm p-10">
-                    <div className="flex items-center gap-4 mb-8">
-                        <div className="w-12 h-12 bg-blue-500 text-white rounded-2xl flex items-center justify-center">
-                            <Zap className="w-6 h-6" />
-                        </div>
-                        <div>
-                            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">AI Engine Configuration</h2>
-                            <p className="text-sm text-slate-400 font-medium tracking-wide">Gemini Advanced Integration Settings</p>
-                        </div>
-                    </div>
+            <div className="flex-1 space-y-8">
+              <div>
+                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">AI & Gemini Engine Control</h2>
+                <p className="text-xs text-slate-400">Manage deep natural-language intelligence prompts and instructions</p>
+              </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <div className="space-y-6">
-                            <div>
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Primary Model</label>
-                                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between">
-                                    <span className="font-bold text-slate-700">{aiConfig?.model || 'Gemini 1.5 Flash'}</span>
-                                    <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded-lg font-bold">Stable</span>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">System Instruction</label>
-                                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                                    <p className="text-sm text-slate-600 italic leading-relaxed">"{aiConfig?.instruction}"</p>
-                                </div>
-                            </div>
-                        </div>
+              {aiConfig ? (
+                <div className="bg-white border border-slate-100 rounded-[2.5rem] shadow-sm p-8 space-y-6">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Primary Gemini AI Model</label>
+                    <input 
+                      type="text" 
+                      readOnly 
+                      value={aiConfig.model} 
+                      className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-3 px-4 text-sm font-bold font-mono focus:outline-none"
+                    />
+                  </div>
 
-                        <div className="bg-blue-50/50 rounded-[2rem] border border-blue-100 p-8">
-                            <h4 className="text-xs font-black text-blue-900 uppercase tracking-widest mb-4">Active Capabilities</h4>
-                            <div className="grid grid-cols-2 gap-3">
-                                {aiConfig?.capabilities.map((cap: string, i: number) => (
-                                    <div key={i} className="flex items-center gap-2 bg-white/50 border border-blue-100 p-3 rounded-xl">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
-                                        <span className="text-[10px] font-bold text-blue-800 uppercase">{cap}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Bot Context & Behavior Directives</label>
+                    <textarea 
+                      readOnly
+                      rows={5}
+                      value={aiConfig.systemInstruction} 
+                      className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-3.5 px-4 text-xs font-semibold leading-relaxed text-slate-600 focus:outline-none"
+                    />
+                  </div>
                 </div>
+              ) : (
+                <div className="py-10 text-center text-slate-400 text-xs">Loading AI settings config...</div>
+              )}
             </div>
           ) : activeTab === 'plugins' ? (
-            <div className="flex-1">
-                <div className="flex items-center justify-between mb-8">
-                    <div>
-                        <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Plugin Manager</h2>
-                        <p className="text-sm text-slate-400">Manage {plugins.length} active command modules</p>
-                    </div>
-                    <button className="px-6 py-2.5 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest rounded-2xl hover:bg-slate-800 transition-all flex items-center gap-2">
-                        <RefreshCw className="w-3 h-3" />
-                        Reload Plugins
-                    </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {plugins.map((plugin, i) => (
-                        <motion.div 
-                            key={i}
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ delay: i * 0.05 }}
-                            className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md transition-all group"
-                        >
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="p-3 bg-slate-50 text-slate-400 rounded-2xl group-hover:bg-emerald-50 group-hover:text-emerald-500 transition-colors">
-                                    <Puzzle className="w-5 h-5" />
-                                </div>
-                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 bg-slate-50 px-3 py-1 rounded-full">{plugin.category}</span>
-                            </div>
-                            <h3 className="text-sm font-black text-slate-800 uppercase mb-2 tracking-tight">{plugin.name}</h3>
-                            <p className="text-xs text-slate-400 font-medium leading-relaxed">{plugin.desc}</p>
-                            <div className="mt-6 flex items-center justify-between pt-6 border-t border-slate-50">
-                                <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest flex items-center gap-1.5">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                                    Active
-                                </span>
-                                <Settings className="w-4 h-4 text-slate-200 hover:text-slate-400 cursor-pointer transition-colors" />
-                            </div>
-                        </motion.div>
-                    ))}
-                </div>
-            </div>
-          ) : activeTab === 'sessions' ? (
-            <div className="flex-grow flex flex-col gap-10 max-w-6xl mx-auto w-full pb-10">
-              {/* Overview Header */}
-              <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex-1 space-y-12">
+              <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Multi-Account Dashboard</h2>
-                  <p className="text-sm text-slate-400 font-medium tracking-wide">Configure, link, and run multiple WhatsApp instances on your server</p>
-                </div>
-                <div className="p-1 px-4 bg-emerald-50 border border-emerald-100 rounded-full flex items-center gap-2 self-start md:self-auto">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
-                    {sessions.filter(s => s.connected).length} / {sessions.length} Active Bots
-                  </span>
+                  <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Plugin Manager</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">Manage automated background capabilities and modules</p>
                 </div>
               </div>
 
-              {/* Account Creator & Active Inventory split */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Account Creator Column */}
-                <div className="lg:col-span-1 space-y-6">
-                  <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm p-8 space-y-6">
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 bg-emerald-50 text-emerald-500 rounded-2xl">
-                        <Smartphone className="w-5 h-5" />
+              {/* Plugins Grid Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {plugins.map((plugin, i) => (
+                  <div key={plugin.name || i} className="bg-white border border-slate-100 shadow-sm rounded-3xl p-6 space-y-3 relative group">
+                    <div className="flex justify-between items-start">
+                      <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                        <Puzzle className="w-5 h-5 text-slate-700" />
                       </div>
-                      <h3 className="font-black text-slate-800 uppercase tracking-tight text-sm">Create New Bot</h3>
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[8px] font-bold uppercase tracking-wider">Active</span>
                     </div>
 
-                    <p className="text-xs text-slate-400 leading-relaxed font-semibold">
-                      Deploy another parallel WhatsApp instance. Provide a simple lowercase key (no spaces / special characters).
-                    </p>
-
-                    <div className="space-y-4">
-                      <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Bot Identifier</label>
-                        <input 
-                          type="text"
-                          placeholder="e.g. work_bot"
-                          value={newSessionName}
-                          onChange={(e) => setNewSessionName(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 transition-all"
-                        />
-                      </div>
-
-                      <button 
-                        onClick={handleCreateSession}
-                        disabled={!newSessionName.trim()}
-                        className="w-full py-3.5 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-2xl hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                      >
-                        Initialize Instance
-                      </button>
+                    <div>
+                      <h4 className="text-sm font-black uppercase text-slate-800">{plugin.name || 'Capabilities'}</h4>
+                      <p className="text-xs text-slate-400 mt-1 select-none leading-relaxed">Automated trigger hooks with full command support.</p>
                     </div>
                   </div>
+                ))}
+              </div>
+
+              {/* TERMINAL CREATION & MANAGEMENT CONTROL PANEL (Owner panel requested by user) */}
+              <div className="bg-white border border-slate-150/80 rounded-[2.5rem] shadow-xl p-8 md:p-10 space-y-8">
+                <div>
+                  <span className="text-[9px] bg-slate-900 text-white px-3 py-1 rounded font-black tracking-widest uppercase mb-3 inline-block">TERMINALS MANAGEMENT SYSTEM</span>
+                  <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Terminal Multi-Tenant Network Setup</h2>
+                  <p className="text-xs text-slate-400 mt-1 font-medium leading-relaxed">
+                    Create independent user portals. Each portal can deploy and pay for their own bots using IntaSend checkouts, keeping JID sessions sandboxed and distinct.
+                  </p>
                 </div>
 
-                {/* Grid list column */}
-                <div className="lg:col-span-2 space-y-6">
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Deployed WhatsApp Bot Instances</h3>
+                {/* Form to Create New Terminals */}
+                <div className="bg-slate-50 p-6 md:p-8 rounded-[2rem] border border-slate-100 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 items-end">
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Terminal ID / Key</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. nairobi_port"
+                      value={newTerminalId}
+                      onChange={(e) => setNewTerminalId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                      className="w-full bg-white border border-slate-200 rounded-2xl py-2.5 px-4 text-xs font-bold focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Terminal Display Name</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Kenya Central Bot"
+                      value={newTerminalName}
+                      onChange={(e) => setNewTerminalName(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-2xl py-2.5 px-4 text-xs font-bold focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Operator Manager name</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Daniel Musembi"
+                      value={newTerminalOperator}
+                      onChange={(e) => setNewTerminalOperator(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-2xl py-2.5 px-4 text-xs font-semibold focus:outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">weekly KES</label>
+                      <input 
+                        type="number" 
+                        value={newTerminalWeeklyRate}
+                        onChange={(e) => setNewTerminalWeeklyRate(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-full bg-white border border-slate-200 rounded-2xl py-2.5 px-3 text-xs font-bold focus:outline-none text-center"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">setup KES</label>
+                      <input 
+                        type="number" 
+                        value={newTerminalSetupFee}
+                        onChange={(e) => setNewTerminalSetupFee(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-full bg-white border border-slate-200 rounded-2xl py-2.5 px-3 text-xs font-bold focus:outline-none text-center"
+                      />
+                    </div>
+                  </div>
                   
-                  {sessions.length === 0 ? (
-                    <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm p-10 text-center">
-                      <Bot className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                      <p className="font-bold text-slate-500">No bot accounts found</p>
+                  <button 
+                    onClick={handleCreateTerminal}
+                    className="py-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all shadow-md select-none flex items-center justify-center gap-1"
+                  >
+                    <Plus className="w-4 h-4" /> Create Terminal
+                  </button>
+                </div>
+
+                {/* List of current terminals + action buttons */}
+                <div className="space-y-4">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Terminals Network Inventory</h4>
+                  
+                  {terminals.length === 0 ? (
+                    <div className="py-8 bg-slate-50 border border-slate-100 rounded-[1.5rem] text-center italic text-slate-400 text-xs">
+                      No active terminals created. Fill form parameters above to create your first tenant link.
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                      {sessions.map((sess) => {
-                        const isOriginal = sess.sessionId === 'default_bot';
-                        return (
-                          <div 
-                            key={sess.sessionId} 
-                            className={`bg-white rounded-[2rem] border shadow-sm p-6 flex flex-col justify-between transition-all hover:shadow-md ${
-                              sess.connected ? 'border-emerald-100 bg-emerald-50/10' : 'border-slate-100'
-                            }`}
-                          >
-                            <div>
-                              <div className="flex items-center justify-between mb-4">
-                                <span className={`text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full ${
-                                  isOriginal ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-600'
-                                }`}>
-                                  {isOriginal ? '🌐 Primary Bot' : '🤖 Sub-Account'}
-                                </span>
-                                
-                                <span className={`w-2.5 h-2.5 rounded-full ${
-                                  sess.connected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
-                                }`} />
-                              </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {terminals.map(term => {
+                        const directUrl = `${window.location.origin}?terminal=${term.id}`;
+                        const botsInTerm = sessions.filter(s => s.terminalId === term.id);
 
-                              <h4 className="text-base font-black text-slate-800 truncate uppercase mt-1">
-                                {isOriginal ? 'DANSCOM BOT' : sess.sessionId}
-                              </h4>
-                              
-                              {sess.connected ? (
-                                <div className="mt-4 space-y-2">
-                                  <div>
-                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Linked Account</p>
-                                    <p className="text-xs font-bold text-slate-700">{sess.user?.name || 'WhatsApp Client'}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Phone Number</p>
-                                    <p className="text-xs font-semibold text-slate-700 font-mono tabular-nums">
-                                      {sess.user?.id ? sess.user.id.split(':')[0] : 'Connected'}
-                                    </p>
-                                  </div>
-                                </div>
-                              ) : (
-                                <p className="text-xs text-slate-400 font-semibold mt-4">
-                                  Inactive/Disconnected account. Needs device linking authentication.
-                                </p>
-                              )}
+                        return (
+                          <div key={term.id} className="p-6 bg-slate-50/60 border border-slate-200/50 rounded-[2rem] space-y-4 shadow-sm hover:shadow-md transition-shadow relative">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h5 className="text-sm font-black text-slate-800 uppercase leading-none">{term.name}</h5>
+                                <p className="text-[8px] font-black tracking-wider text-slate-400 uppercase mt-1">ID: {term.id} • Operator: {term.operatorName || 'System'}</p>
+                              </div>
+                              <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-[8px] font-bold uppercase tracking-wider">Multi-Tenant</span>
                             </div>
 
-                            <div className="mt-8 pt-4 border-t border-slate-50 flex items-center gap-3">
-                              {sess.connected ? (
-                                <>
-                                  <button 
-                                    onClick={() => {
-                                      setPairingSessionId(sess.sessionId);
-                                      handleRestart();
-                                    }}
-                                    className="flex-1 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-[10px] font-bold uppercase tracking-widest text-slate-600 border border-slate-200 transition-colors"
-                                  >
-                                    Restart
-                                  </button>
-                                  {!isOriginal && (
-                                    <button 
-                                      onClick={() => handleDeleteSession(sess.sessionId)}
-                                      className="py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-[10px] font-bold uppercase tracking-widest text-rose-500 border border-rose-100 transition-colors"
-                                    >
-                                      Delete
-                                    </button>
-                                  )}
-                                </>
-                              ) : (
-                                <>
-                                  <button 
-                                    onClick={() => {
-                                      setPairingSessionId(sess.sessionId);
-                                      setPhoneNumber('');
-                                      setPairingError(null);
-                                      setShowPairing(true);
-                                    }}
-                                    className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-[10px] font-black uppercase tracking-widest text-white transition-colors flex items-center justify-center gap-2"
-                                  >
-                                    <LinkIcon className="w-3.5 h-3.5" />
-                                    Link Account
-                                  </button>
-                                  {!isOriginal && (
-                                    <button 
-                                      onClick={() => handleDeleteSession(sess.sessionId)}
-                                      className="py-2.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-[10px] font-bold uppercase tracking-widest text-rose-500 border border-rose-100 transition-colors"
-                                    >
-                                      Delete
-                                    </button>
-                                  )}
-                                </>
-                              )}
+                            <div className="flex justify-between items-center text-[11px] bg-white p-3 rounded-xl border border-slate-100">
+                              <span className="font-bold text-slate-400 uppercase">Pricing Configuration</span>
+                              <span className="font-bold text-slate-800">Setup: {term.setupFee} KES • Weekly: {term.weeklyRate} KES</span>
+                            </div>
+
+                            <div className="flex justify-between items-center text-[10px] bg-white p-3 rounded-xl border border-slate-100">
+                              <span className="font-bold text-slate-400 uppercase">Connected Bots Inventory</span>
+                              <span className="font-mono text-indigo-600 font-bold">{botsInTerm.length} connected</span>
+                            </div>
+
+                            {/* Share portal URL handles copying link */}
+                            <div className="flex items-center gap-2 pt-2">
+                              <button 
+                                onClick={() => copyTerminalLink(term.id)}
+                                className="flex-1 py-2.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-[10px] font-bold uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5"
+                              >
+                                {copiedId === term.id ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                    Copied!
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5 text-slate-400" />
+                                    Copy Portal Link
+                                  </>
+                                )}
+                              </button>
+                              
+                              <a 
+                                href={directUrl} 
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-4 py-2.5 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-wider rounded-xl transition-all hover:bg-slate-800 text-center"
+                              >
+                                Open Portal
+                              </a>
                             </div>
                           </div>
                         );
@@ -938,28 +1366,92 @@ export default function App() {
               </div>
             </div>
           ) : activeTab === 'console' ? (
-            <div className="flex-1 flex flex-col bg-slate-950 rounded-[2.5rem] overflow-hidden border border-slate-800 shadow-2xl">
-              <div className="bg-slate-900 px-8 py-6 flex items-center justify-between border-b border-slate-800">
-                <div className="flex items-center gap-4">
-                  <Terminal className="w-6 h-6 text-emerald-500" />
-                  <div>
-                    <h3 className="text-lg font-bold text-white uppercase tracking-wider">System Output Stream</h3>
-                    <p className="text-[10px] text-slate-400 font-mono">Process ID: 8274 | Status: Live</p>
-                  </div>
-                </div>
+            <div className="flex-1 flex flex-col gap-6">
+              <div>
+                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Log Console Stream</h2>
+                <p className="text-xs text-slate-400">Verifying real-time background automation process logs</p>
               </div>
-              <div className="flex-1 p-8 font-mono text-sm text-emerald-400/90 leading-relaxed overflow-y-auto space-y-4 custom-scrollbar">
-                <p className="flex gap-4"><span className="text-slate-600 shrink-0">[12:04:22]</span> <span className="text-blue-400 font-bold">INFO:</span> <span className="text-slate-100">Initializing Baileys connection...</span></p>
-                <p className="flex gap-4"><span className="text-slate-600 shrink-0">[12:04:25]</span> <span className="text-orange-400 font-bold">AUTH:</span> <span className="text-slate-100">Reloading session from Firebase Firestore.</span></p>
-                <p className="flex gap-4"><span className="text-slate-600 shrink-0">[12:04:26]</span> <span className="text-emerald-400 font-bold">SUCCESS:</span> <span className="text-emerald-100">WhatsApp Authentication established as @danscom_bot.</span></p>
-                <p className="flex gap-4"><span className="text-slate-600 shrink-0">[12:05:01]</span> <span className="text-purple-400 font-bold">STATUS:</span> <span className="text-slate-100">Automatically viewed 4 recent updates.</span></p>
-                <p className="flex gap-4"><span className="text-slate-600 shrink-0">[12:08:12]</span> <span className="text-rose-400 font-bold">PREMIUM:</span> <span className="text-slate-100">Payment receipt verified for user 254... (KSH 5.00)</span></p>
-                <p className="flex gap-4"><span className="text-slate-600 shrink-0">[12:10:44]</span> <span className="text-blue-400 font-bold">AI:</span> <span className="text-slate-100">Gemini processed input payload for ".gpt help"</span></p>
-                <p className="flex gap-4"><span className="text-slate-600 shrink-0">[12:12:33]</span> <span className="text-slate-500 font-bold">STAY_ALIVE:</span> <span className="text-slate-400">Render keep-awake ping successful. Next in 14m.</span></p>
-                <p className="animate-pulse text-emerald-500 font-bold text-lg">_</p>
+
+              <div className="flex-1 bg-slate-950 border border-slate-800 rounded-[2.5rem] p-6 font-mono text-slate-200 text-xs shadow-2xl h-[35rem] overflow-y-auto space-y-2 select-text">
+                <p className="text-slate-500 select-none">[System Bootstrap Server running successfully on PORT: 3000]</p>
+                <p className="text-slate-400 select-none">[IntaSend multi-tenant microfinance listener initiated]</p>
+                <p className="text-slate-400 select-none">[Firestore dynamic state machine successfully configured]</p>
+                <p className="text-emerald-400 font-bold">[Active bot listener running. Ready to receive commands]</p>
               </div>
             </div>
-          ) : null}
+          ) : (
+            /* Tab === sessions */
+            <div className="flex-1 space-y-8">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Active Sessions Admin</h2>
+                  <p className="text-xs text-slate-400">Manage, isolate or prune multi-tenant sub-account bots</p>
+                </div>
+              </div>
+
+              {/* Create new main/owner session field */}
+              <div className="bg-white border border-slate-100 shadow-sm rounded-3xl p-6 flex flex-col md:flex-row gap-4 items-center">
+                <input 
+                  type="text" 
+                  placeholder="Insert custom Session ID key"
+                  value={newSessionName}
+                  onChange={(e) => setNewSessionName(e.target.value)}
+                  className="w-full md:flex-1 bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold focus:outline-none"
+                />
+                
+                <button 
+                  onClick={handleCreateSession}
+                  className="w-full md:w-auto py-3 px-6 bg-slate-900 hover:bg-slate-800 text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all shadow-md select-none leading-none block"
+                >
+                  Start New Session ID
+                </button>
+              </div>
+
+              {/* Table list of sessions with deletion capabilities */}
+              <div className="bg-white border border-slate-100 rounded-[2.5rem] shadow-sm p-8">
+                <div className="space-y-4">
+                  {sessions.map(sess => (
+                    <div key={sess.sessionId} className="p-5 bg-slate-50 border border-slate-100 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <h4 className="text-sm font-black text-slate-800 uppercase">{sess.sessionId}</h4>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Terminal key association: {sess.terminalId || 'Unlinked (Master)'}</p>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <button 
+                          onClick={() => {
+                            setPairingViewSessionId(sess.sessionId);
+                            setIsPairingViewOnly(true);
+                          }}
+                          className="py-2.5 px-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all"
+                        >
+                          Pairing Console
+                        </button>
+                        <button 
+                          onClick={() => {
+                            const termId = sess.terminalId || 'main_terminal';
+                            const directPairingUrl = `${window.location.origin}?terminal=${termId}&pairing_view=true&session=${sess.sessionId}`;
+                            navigator.clipboard.writeText(directPairingUrl);
+                            alert('Copied secure standalone pairing link for this session!');
+                          }}
+                          className="p-2.5 bg-white border border-slate-200 text-slate-500 hover:text-slate-800 rounded-xl transition-all flex items-center justify-center shadow-sm"
+                          title="Copy Standalone Pairing Link"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteSession(sess.sessionId)}
+                          className="py-2.5 px-4 bg-rose-50 hover:bg-rose-100 text-rose-600 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all"
+                        >
+                          Prune bot JID
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>

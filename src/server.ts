@@ -15,6 +15,14 @@ import {
   restartWhatsApp
 } from './services/whatsapp.js';
 import { analyticsDb, usersDb, getIsFirestoreUsable } from './database/firebase.js';
+import { 
+  getAllTerminals, 
+  getTerminalById, 
+  createTerminal, 
+  initiateIntasendPayment, 
+  verifyIntasendPayment,
+  addSessionToTerminal
+} from './services/terminalService.js';
 
 async function bootstrap() {
   const app = express();
@@ -135,7 +143,7 @@ async function bootstrap() {
   });
 
   app.post('/api/sessions', async (req, res) => {
-    const { sessionId } = req.body;
+    const { sessionId, terminalId } = req.body;
     if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
     
     // Clean sessionId to prevent visual bugs or injection
@@ -144,6 +152,9 @@ async function bootstrap() {
 
     try {
       await startWhatsAppSession(cleanId);
+      if (terminalId) {
+        await addSessionToTerminal(terminalId, cleanId);
+      }
       res.json({ status: 'Session started', sessionId: cleanId });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -193,6 +204,97 @@ async function bootstrap() {
     } catch (error: any) {
       console.error('Pairing request error:', error);
       res.status(500).json({ error: error.message || 'Failed to generate code' });
+    }
+  });
+
+  // Get all terminals
+  app.get('/api/terminals', async (req, res) => {
+    try {
+      const list = await getAllTerminals();
+      res.json(list);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get terminal details
+  app.get('/api/terminals/:id', async (req, res) => {
+    try {
+      const terminal = await getTerminalById(req.params.id);
+      if (!terminal) return res.status(404).json({ error: 'Terminal not found' });
+      res.json(terminal);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create terminal
+  app.post('/api/terminals', async (req, res) => {
+    try {
+      const { id, name, operatorName, weeklyRate, setupFee } = req.body;
+      if (!id || !name) return res.status(400).json({ error: 'ID and Name are required' });
+      
+      const newTerm = await createTerminal({
+        id,
+        name,
+        operatorName: operatorName || 'Operator',
+        weeklyRate: parseFloat(weeklyRate) || 5,
+        setupFee: parseFloat(setupFee) || 0
+      });
+      res.json(newTerm);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create checkout payment
+  app.post('/api/payments/create-checkout', async (req, res) => {
+    try {
+      const { amount, email, phoneNumber, sessionId, terminalId, type } = req.body;
+      if (!amount || !phoneNumber || !sessionId || !terminalId) {
+        return res.status(400).json({ error: 'Missing payment parameters' });
+      }
+
+      const hostUrl = `${req.protocol}://${req.get('host')}`;
+      
+      const details = await initiateIntasendPayment({
+        amount: parseFloat(amount),
+        email: email || `${sessionId}@danscom.com`,
+        phoneNumber,
+        sessionId,
+        terminalId,
+        type: type || 'setup',
+        hostUrl
+      });
+
+      res.json(details);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Verify payment transaction
+  app.post('/api/payments/verify', async (req, res) => {
+    try {
+      const { invoiceId, terminalId, sessionId } = req.body;
+      if (!invoiceId) return res.status(400).json({ error: 'invoiceId is required' });
+
+      const checked = await verifyIntasendPayment(invoiceId);
+      if (checked.success && checked.transaction) {
+        const termId = terminalId || checked.transaction.terminalId;
+        const sessId = sessionId || checked.transaction.sessionId;
+        if (termId && sessId) {
+          await addSessionToTerminal(termId, sessId);
+        }
+      }
+
+      res.json({
+        success: checked.success,
+        status: checked.transaction?.status || 'pending',
+        transaction: checked.transaction
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 

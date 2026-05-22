@@ -78,3 +78,5 @@ export const settingsDb = db ? db.collection('settings') : null;
 export const sessionsDb = db ? db.collection('sessions') : null;
 export const contactsDb = db ? db.collection('contacts') : null;
 export const premiumDb = db ? db.collection('premium') : null;
+export const terminalsDb = db ? db.collection('terminals') : null;
+export const paymentsDb = db ? db.collection('payments') : null;
