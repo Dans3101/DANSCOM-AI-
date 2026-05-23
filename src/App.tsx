@@ -82,6 +82,7 @@ export default function App() {
   const [pairingInputPhone, setPairingInputPhone] = useState('');
   const [isActivatingStream, setIsActivatingStream] = useState(false);
   const [isTerminalQRInitializing, setIsTerminalQRInitializing] = useState(false);
+  const [localPairingCode, setLocalPairingCode] = useState<string | null>(null);
 
   useEffect(() => {
     // 1. Detect if terminal parameters exist
@@ -393,6 +394,13 @@ export default function App() {
       const data = await res.json();
       if (data.code) {
         setTerminalActiveSession({ pairingCode: data.code, connected: false });
+        setSessions(prev => {
+          const exists = prev.some(s => s.sessionId === terminalBotId);
+          if (!exists) {
+            return [...prev, { sessionId: terminalBotId, pairingCode: data.code, connected: false, terminalId: activeTerminalId || 'main_terminal' }];
+          }
+          return prev.map(s => s.sessionId === terminalBotId ? { ...s, pairingCode: data.code } : s);
+        });
         // Refresh sessions to register pairing state change
         const sRes = await fetch('/api/sessions');
         if (sRes.ok) {
@@ -501,7 +509,14 @@ export default function App() {
 
         const data = await res.json();
         if (data.code) {
-          setSessions(prev => prev.map(s => s.sessionId === pairingViewSessionId ? { ...s, pairingCode: data.code } : s));
+          setLocalPairingCode(data.code);
+          setSessions(prev => {
+            const exists = prev.some(s => s.sessionId === pairingViewSessionId);
+            if (!exists) {
+              return [...prev, { sessionId: pairingViewSessionId, pairingCode: data.code, connected: false, terminalId: activeTerminalId || 'main_terminal' }];
+            }
+            return prev.map(s => s.sessionId === pairingViewSessionId ? { ...s, pairingCode: data.code } : s);
+          });
         } else {
           setPairingError(data.error || 'Failed to generate PIN. Please try again or check number.');
         }
@@ -626,10 +641,10 @@ export default function App() {
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col justify-center space-y-4 bg-slate-50/50 rounded-3xl border border-slate-100 p-6">
-                  {activeSessState?.pairingCode ? (
+                  {activeSessState?.pairingCode || localPairingCode ? (
                     <div className="text-center space-y-3 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
                       <label className="text-[9px] font-black text-slate-405 uppercase tracking-widest block leading-none">Your 8-Character Pin Key</label>
-                      <p className="text-3xl font-mono tracking-widest font-black text-indigo-600 select-all">{activeSessState.pairingCode}</p>
+                      <p className="text-3xl font-mono tracking-widest font-black text-indigo-600 select-all">{activeSessState?.pairingCode || localPairingCode}</p>
                       <p className="text-[9px] text-slate-400 font-semibold leading-normal">Enter this pin on your WhatsApp Link with Phone Number screen.</p>
                       <button
                         onClick={handleReqPairingCodeOnly}
@@ -1107,59 +1122,65 @@ export default function App() {
               </button>
             </div>
 
-            {sessions.length === 0 ? (
-              <div className="text-center py-10">
-                <Bot className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-                <p className="text-[10px] text-slate-400 font-bold uppercase">No Bots Connected Globally</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {sessions.map(s => {
-                  const targetTermId = s.terminalId || activeTerminalId || 'main_terminal';
-                  const directPairingUrl = `${window.location.origin}?terminal=${targetTermId}&pairing_view=true&session=${s.sessionId}`;
-                  return (
-                    <div key={s.sessionId} className="p-5 bg-slate-50 border border-slate-200/50 rounded-[1.5rem] flex flex-col gap-4 shadow-sm hover:border-slate-300 transition-all">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="text-xs font-black text-slate-850 uppercase leading-none">{s.sessionId}</p>
-                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${s.connected ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
-                              {s.connected ? '🟢 Linked Live' : '⚙️ Pending'}
-                            </span>
-                            <span className="text-[8px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
-                              Terminal: {s.terminalId || 'Main'}
-                            </span>
+            {(() => {
+              const activeTerminalSessions = sessions.filter(s => s.terminalId === activeTerminalId);
+              if (activeTerminalSessions.length === 0) {
+                return (
+                  <div className="text-center py-10">
+                    <Bot className="w-8 h-8 text-slate-200 mx-auto mb-2" />
+                    <p className="text-[10px] text-slate-400 font-bold uppercase">No Bots Connected to this Terminal</p>
+                  </div>
+                );
+              }
+              return (
+                <div className="space-y-4">
+                  {activeTerminalSessions.map(s => {
+                    const targetTermId = s.terminalId || activeTerminalId || 'main_terminal';
+                    const directPairingUrl = `${window.location.origin}?terminal=${targetTermId}&pairing_view=true&session=${s.sessionId}`;
+                    return (
+                      <div key={s.sessionId} className="p-5 bg-slate-50 border border-slate-200/50 rounded-[1.5rem] flex flex-col gap-4 shadow-sm hover:border-slate-300 transition-all">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="text-xs font-black text-slate-850 uppercase leading-none">{s.sessionId}</p>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${s.connected ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
+                                {s.connected ? '🟢 Linked Live' : '⚙️ Pending'}
+                              </span>
+                              <span className="text-[8px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                                Terminal: {s.terminalId || 'Main'}
+                              </span>
+                            </div>
                           </div>
+                          <span className={`w-2.5 h-2.5 rounded-full ${s.connected ? 'bg-emerald-500 shadow-sm shadow-emerald-250' : 'bg-amber-400'}`} />
                         </div>
-                        <span className={`w-2.5 h-2.5 rounded-full ${s.connected ? 'bg-emerald-500 shadow-sm shadow-emerald-250' : 'bg-amber-400'}`} />
+                        
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => {
+                              setPairingViewSessionId(s.sessionId);
+                              setIsPairingViewOnly(true);
+                            }}
+                            className="flex-1 py-2.5 bg-slate-900 text-white rounded-xl text-[10px] uppercase font-black tracking-widest hover:bg-slate-800 transition-all text-center flex items-center justify-center gap-1 shadow-sm cursor-pointer"
+                          >
+                            <QrCode className="w-3.5 h-3.5" /> Open Pairing Link
+                          </button>
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText(directPairingUrl);
+                              alert('Direct, secure pairing link containing QR & PIN code methods copied to clipboard!');
+                            }}
+                            className="px-3 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl text-[10px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
+                            title="Copy Standalone Pairing Link (QR & PIN only)"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
-                      
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => {
-                            setPairingViewSessionId(s.sessionId);
-                            setIsPairingViewOnly(true);
-                          }}
-                          className="flex-1 py-2.5 bg-slate-900 text-white rounded-xl text-[10px] uppercase font-black tracking-widest hover:bg-slate-800 transition-all text-center flex items-center justify-center gap-1 shadow-sm"
-                        >
-                          <QrCode className="w-3.5 h-3.5" /> Open Pairing Link
-                        </button>
-                        <button 
-                          onClick={() => {
-                            navigator.clipboard.writeText(directPairingUrl);
-                            alert('Direct, secure pairing link containing QR & PIN code methods copied to clipboard!');
-                          }}
-                          className="px-3 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl text-[10px] font-bold transition-all flex items-center justify-center gap-1"
-                          title="Copy Standalone Pairing Link (QR & PIN only)"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
             <div className="border-t border-slate-100 pt-5 space-y-3">
               <p className="text-[10px] font-extrabold tracking-wider text-slate-400 uppercase text-center select-none">Join Official Community</p>

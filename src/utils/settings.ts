@@ -1,6 +1,6 @@
 import { settingsDb, getIsFirestoreUsable, handleFirestoreError } from '../database/firebase.js';
 
-const cache: { [key: string]: boolean } = {
+const DEFAULTS: { [key: string]: boolean } = {
   auto_read: false,
   auto_status_view: true,
   auto_status_like: false,
@@ -13,17 +13,19 @@ const cache: { [key: string]: boolean } = {
   save_view_once: true,
 };
 
+const cache: { [key: string]: boolean } = {};
+
 export const isEnabled = async (feature: string): Promise<boolean> => {
   if (cache[feature] !== undefined) return cache[feature];
   
   if (!getIsFirestoreUsable() || !settingsDb) {
-    return false;
+    return DEFAULTS[feature] ?? false;
   }
 
   try {
     const doc = await settingsDb.doc(feature).get();
     if (doc.exists) {
-      cache[feature] = doc.data()?.value ?? false;
+      cache[feature] = doc.data()?.value ?? (DEFAULTS[feature] ?? false);
       return cache[feature];
     }
   } catch (err: any) {
@@ -31,7 +33,8 @@ export const isEnabled = async (feature: string): Promise<boolean> => {
     handleFirestoreError(err);
   }
   
-  return false;
+  cache[feature] = DEFAULTS[feature] ?? false;
+  return cache[feature];
 };
 
 export const setFeature = async (feature: string, value: boolean) => {

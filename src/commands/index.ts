@@ -69,43 +69,86 @@ export const processCommand = async (
         } catch (e) {}
 
         const menuText = `──〔 DANSCOM MENU 〕──┐
-🤖 AI
-📥 Downloads
-🎵 Music
-🎨 Photo Edit
-😂 Fun
-👥 Group
-⚙️ Settings
-🌍 Search
-⚽ Sports
-🖼️ Stickers
-🔍 Tools
-📢 Updates
+1. 🤖 AI
+2. 📥 Downloads
+3. 🎵 Music
+4. 🎨 Photo Edit
+5. 😂 Fun
+6. 👥 Group
+7. ⚙️ Settings
+8. 🌍 Search
+9. ⚽ Sports
+10. 🖼️ Stickers
+11. 🔍 Tools
+12. 📢 Updates
 └──────────────────┘
 Type a number to open a menu.`.trim();
-
-        const templateButtons = [
-          { index: 1, urlButton: { displayText: '📢 Join Official Channel', url: 'https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H' } },
-          { index: 2, urlButton: { displayText: '💬 Join Support Group', url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t' } }
-        ];
 
         try {
           const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');
           if (fs.existsSync(imagePath)) {
+            const media = await (sock as any).prepareMessageMedia({ image: fs.readFileSync(imagePath) }, { upload: (sock as any).waUploadToServer });
             await sock.sendMessage(from, {
-              image: fs.readFileSync(imagePath),
-              caption: menuText,
-              templateButtons: templateButtons
+              viewOnceMessage: {
+                message: {
+                  templateMessage: {
+                    hydratedTemplate: {
+                      imageMessage: media.imageMessage,
+                      hydratedContentText: menuText,
+                      hydratedButtons: [
+                        {
+                          index: 1,
+                          urlButton: {
+                            displayText: '📢 Join Official Channel',
+                            url: 'https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H'
+                          }
+                        },
+                        {
+                          index: 2,
+                          urlButton: {
+                            displayText: '💬 Join Support Group',
+                            url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t'
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
             } as any, { quoted: m });
           } else {
-            await sock.sendMessage(from, { 
-              text: menuText,
-              templateButtons: templateButtons
+            await sock.sendMessage(from, {
+              viewOnceMessage: {
+                message: {
+                  templateMessage: {
+                    hydratedTemplate: {
+                      hydratedContentText: menuText,
+                      hydratedButtons: [
+                        {
+                          index: 1,
+                          urlButton: {
+                            displayText: '📢 Join Official Channel',
+                            url: 'https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H'
+                          }
+                        },
+                        {
+                          index: 2,
+                          urlButton: {
+                            displayText: '💬 Join Support Group',
+                            url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t'
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
             } as any, { quoted: m });
           }
         } catch (err: any) {
-          console.error('Failed to send menu image banner, falling back to text:', err.message);
-          await sock.sendMessage(from, { text: menuText }, { quoted: m });
+          console.error('Failed to send menu with button structure:', err.message);
+          const fallbackText = `${menuText}\n\n📢 Join Official Channel:\nhttps://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n\n💬 Join Support Group:\nhttps://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t`;
+          await sock.sendMessage(from, { text: fallbackText }, { quoted: m });
         }
         break;
 

@@ -133,8 +133,24 @@ app.get('/api/ai-config', (req, res) => {
   });
 });
 
-app.get('/api/sessions', (req, res) => {
-  res.json(getSessionsState());
+app.get('/api/sessions', async (req, res) => {
+  try {
+    const rawSessions = getSessionsState();
+    const { getAllTerminals } = await import('./services/terminalService.js');
+    const terminals = await getAllTerminals().catch(() => []);
+    
+    const sessionsWithTerminals = rawSessions.map(s => {
+      const term = terminals.find(t => t.sessionIds && t.sessionIds.includes(s.sessionId));
+      return {
+        ...s,
+        terminalId: term ? term.id : null
+      };
+    });
+    
+    res.json(sessionsWithTerminals);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.post('/api/sessions', async (req, res) => {

@@ -47,6 +47,7 @@ export interface SessionInfo {
     pairingNumber: string | null;
     isInitializing: boolean;
     user: { id: string; name: string } | null;
+    connectionState?: 'open' | 'connecting' | 'close' | null;
 }
 
 const sessions = new Map<string, SessionInfo>();
@@ -98,7 +99,7 @@ export const getConnectionState = () => {
         return {
             qr: def.qr,
             pairingCode: def.pairingCode,
-            connected: !!def.sock?.user,
+            connected: def.connectionState === 'open' && !!def.sock?.user,
             pairingNumber: def.pairingNumber,
             user: def.sock?.user ? {
                 id: def.sock.user.id,
@@ -122,7 +123,7 @@ export const getSessionsState = () => {
             sessionId: sess.sessionId,
             qr: sess.qr,
             pairingCode: sess.pairingCode,
-            connected: !!sess.sock?.user,
+            connected: sess.connectionState === 'open' && !!sess.sock?.user,
             pairingNumber: sess.pairingNumber,
             user: sess.sock?.user ? {
                 id: sess.sock.user.id,
@@ -244,10 +245,13 @@ export const startWhatsAppSession = async (sessionId: string) => {
             pairingCode: null,
             pairingNumber: null,
             isInitializing: false,
-            user: null
+            user: null,
+            connectionState: 'connecting'
         };
         sessions.set(sessionId, sess);
     }
+    
+    sess.connectionState = 'connecting';
 
     if (sess.isInitializing) {
         console.log(`>> Socket [${sessionId}] already initializing, skipping...`);
@@ -323,6 +327,10 @@ export const startWhatsAppSession = async (sessionId: string) => {
 
         currentSock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
+            
+            if (connection) {
+                sess!.connectionState = connection;
+            }
             
             if (qr) {
                 sess!.qr = qr;
