@@ -332,6 +332,10 @@ export const startWhatsAppSession = async (sessionId: string) => {
             if (connection === 'close') {
                 sess!.qr = null;
                 sess!.pairingCode = null;
+                sess!.sock = null; // Clear socket to reflect correct disconnected state in dashboard
+                if (sessionId === 'default_bot') {
+                    sock = null;
+                }
                 const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
                 

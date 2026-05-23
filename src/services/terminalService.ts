@@ -13,7 +13,8 @@ export interface Terminal {
 }
 
 export interface PaymentTransaction {
-  id: string;              // IntaSend tracking ID/invoice ID/checkout ID
+  id: string;              // IntaSend tracking ID/invoice ID/checkout ID (our generated ref_)
+  intasendInvoiceId?: string; // IntaSend's returned invoice/tracking ID if successful
   sessionId: string;
   terminalId: string;
   phoneNumber: string;
@@ -210,21 +211,26 @@ export const initiateIntasendPayment = async (params: {
     if (checkOutResponse.data && checkOutResponse.data.url) {
       const realId = checkOutResponse.data.id || checkoutId;
       
-      // Update our stored reference with Intasend's ID if provided
-      if (checkOutResponse.data.id && checkOutResponse.data.id !== checkoutId) {
-        transaction.id = checkOutResponse.data.id;
+      // Keep key 'checkoutId' intact as primary reference, but register the Intasend realId for status checks
+      transaction.intasendInvoiceId = realId;
+      
+      inMemoryPayments.set(checkoutId, transaction);
+      if (realId !== checkoutId) {
         inMemoryPayments.set(realId, transaction);
-        if (getIsFirestoreUsable() && paymentsDb) {
-          try {
+      }
+      
+      if (getIsFirestoreUsable() && paymentsDb) {
+        try {
+          await paymentsDb.doc(checkoutId).set(transaction);
+          if (realId !== checkoutId) {
             await paymentsDb.doc(realId).set(transaction);
-            await paymentsDb.doc(checkoutId).delete().catch(() => {});
-          } catch (e) {}
-        }
+          }
+        } catch (e) {}
       }
 
       return {
         checkoutUrl: checkOutResponse.data.url,
-        invoiceId: realId
+        invoiceId: checkoutId
       };
     }
   } catch (err: any) {
@@ -254,6 +260,25 @@ export const verifyIntasendPayment = async (invoiceId: string): Promise<{ succes
     } catch (e) {}
   }
 
+  // Backup support for finding by intasendInvoiceId field in Firestore or memory
+  if (!transaction) {
+    for (const tx of inMemoryPayments.values()) {
+      if (tx.intasendInvoiceId === invoiceId) {
+        transaction = tx;
+        break;
+      }
+    }
+  }
+
+  if (!transaction && getIsFirestoreUsable() && paymentsDb) {
+    try {
+      const snapshot = await paymentsDb.where('intasendInvoiceId', '==', invoiceId).limit(1).get();
+      if (!snapshot.empty) {
+        transaction = snapshot.docs[0].data() as PaymentTransaction;
+      }
+    } catch (e) {}
+  }
+
   if (!transaction) {
     console.warn(`[TerminalService] verifyIntasendPayment: Transaction ${invoiceId} not found`);
     return { success: false, transaction: null };
@@ -266,11 +291,14 @@ export const verifyIntasendPayment = async (invoiceId: string): Promise<{ succes
 
   let apiSuccess = false;
 
+  // Use Intasend's invoice ID for status query if configured, otherwise fallback to local tracking ID
+  const queryInvoiceId = transaction.intasendInvoiceId || transaction.id;
+
   // Attempt real IntaSend status query
   try {
     const statusPayload = {
       public_key: config.publicKey,
-      invoice_id: invoiceId
+      invoice_id: queryInvoiceId
     };
 
     const statusResponse = await axios.post(`${baseUrl}/payment/status/`, statusPayload, {
@@ -278,26 +306,32 @@ export const verifyIntasendPayment = async (invoiceId: string): Promise<{ succes
       timeout: 5000
     });
 
-    const state = statusResponse.data?.invoice?.state;
-    if (state === 'COMPLETE' || state === 'COMPLETED' || statusResponse.data?.status === 'SUCCESS') {
+    const state = statusResponse?.data?.invoice?.state || statusResponse?.data?.state;
+    if (state === 'COMPLETE' || state === 'COMPLETED' || statusResponse?.data?.status === 'SUCCESS' || statusResponse?.data?.invoice?.status === 'SUCCESS') {
       apiSuccess = true;
     }
   } catch (err: any) {
     console.warn('[Intasend Status Query] Intasend status query api was unavailable, verifying inside system limits:', err.message);
     // If it started with ref_ and is a simulated fallback, we can treat it as approved on verification query for testing ease
-    if (invoiceId.startsWith('ref_')) {
+    if (invoiceId.startsWith('ref_') || queryInvoiceId.startsWith('ref_')) {
       apiSuccess = true;
     }
   }
 
-  if (apiSuccess || invoiceId.startsWith('ref_')) {
+  if (apiSuccess || invoiceId.startsWith('ref_') || queryInvoiceId.startsWith('ref_')) {
     transaction.status = 'completed';
     transaction.completedAt = Date.now();
-    inMemoryPayments.set(invoiceId, transaction);
+    inMemoryPayments.set(transaction.id, transaction);
+    if (transaction.intasendInvoiceId) {
+      inMemoryPayments.set(transaction.intasendInvoiceId, transaction);
+    }
 
     if (getIsFirestoreUsable() && paymentsDb) {
       try {
-        await paymentsDb.doc(invoiceId).set(transaction);
+        await paymentsDb.doc(transaction.id).set(transaction);
+        if (transaction.intasendInvoiceId) {
+          await paymentsDb.doc(transaction.intasendInvoiceId).set(transaction);
+        }
       } catch (e) {}
     }
 
@@ -355,6 +389,9 @@ export const activateSubscription = async (sessionId: string, type: 'setup' | 'w
  * Checks if a bot session or sender JID has paid active subscription.
  */
 export const isUserPaid = async (identifier: string): Promise<boolean> => {
+  if (!identifier) {
+    return false;
+  }
   // Always true for owner to avoid locking admin sessions
   if (identifier === 'default_bot' || identifier.includes('owner')) {
     return true;

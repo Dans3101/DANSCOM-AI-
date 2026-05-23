@@ -880,27 +880,44 @@ export default function App() {
               )}
 
               {/* Step 1 input fields */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Bot Key Identifier (lowercase)</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. mpesa_bot"
-                    value={terminalBotId}
-                    onChange={(e) => setTerminalBotId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono"
-                  />
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Bot Key Identifier (lowercase)</label>
+                      <button
+                        type="button"
+                        onClick={() => setTerminalBotId(`bot_${Math.floor(1000 + Math.random() * 9000)}`)}
+                        className="text-[9px] font-black text-emerald-600 hover:text-emerald-700 uppercase tracking-wider cursor-pointer bg-transparent border-none p-0"
+                      >
+                        🎲 Generate Unique Key
+                      </button>
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. mpesa_bot"
+                      value={terminalBotId}
+                      onChange={(e) => setTerminalBotId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2 font-sans">WhatsApp JID/Mobile Number</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. 254712345678"
+                      value={terminalPhone}
+                      onChange={(e) => setTerminalPhone(e.target.value.replace(/[^0-9]/g, ''))}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2 font-sans">WhatsApp JID/Mobile Number</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. 254712345678"
-                    value={terminalPhone}
-                    onChange={(e) => setTerminalPhone(e.target.value.replace(/[^0-9]/g, ''))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono"
-                  />
+                <div className="p-3 bg-slate-50 border border-slate-150/70 rounded-2xl">
+                  <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
+                    💡 <strong className="text-slate-700">Connect Multiple Numbers:</strong> You can link several WhatsApp numbers to this same terminal! Simply supply a different, unique <strong>Bot Key Identifier</strong> (like <code className="font-mono text-emerald-600 font-bold">bot_alice</code> or <code className="font-mono text-emerald-600 font-bold">bot_bob</code>) for each device. Even the same phone number can be set up as multiple separate connection instances!
+                  </p>
                 </div>
               </div>
 
@@ -1143,6 +1160,30 @@ export default function App() {
                 })}
               </div>
             )}
+
+            <div className="border-t border-slate-100 pt-5 space-y-3">
+              <p className="text-[10px] font-extrabold tracking-wider text-slate-400 uppercase text-center select-none">Join Official Community</p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <a
+                  href="https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  id="visitor-channel-btn"
+                  className="flex-1 py-2.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-150 text-indigo-700 rounded-xl text-[10px] font-black uppercase text-center flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                >
+                  📢 Join Channel
+                </a>
+                <a
+                  href="https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  id="visitor-group-btn"
+                  className="flex-1 py-2.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-150 text-emerald-700 rounded-xl text-[10px] font-black uppercase text-center flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                >
+                  💬 Support Group
+                </a>
+              </div>
+            </div>
             
             <div className="pt-6 border-t border-slate-100 text-center select-none">
               <span className="text-[9px] text-slate-400 font-black tracking-widest uppercase">🛡️ INTASEND ENCRYPTED DEPLOYMENT</span>
@@ -1314,7 +1355,33 @@ export default function App() {
             </div>
           </div>
 
-          <div className="mt-auto pt-6 border-t border-slate-100 select-none">
+          <div className="mt-auto pt-6 border-t border-slate-100 select-none space-y-4">
+            <div className="space-y-2">
+              <p className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider">Gateway Community</p>
+              <div className="flex flex-col gap-1.5">
+                <a
+                  href="https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  id="community-channel-btn"
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-indigo-50 hover:bg-indigo-100/80 border border-indigo-100 rounded-xl transition-all text-xs font-bold text-indigo-700 cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5">📢 Official Channel</span>
+                  <ChevronRight className="w-3 h-3 text-indigo-400" />
+                </a>
+                <a
+                  href="https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  id="community-group-btn"
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-100 rounded-xl transition-all text-xs font-bold text-emerald-700 cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5">💬 Support Group</span>
+                  <ChevronRight className="w-3 h-3 text-emerald-400" />
+                </a>
+              </div>
+            </div>
+
             <div className="flex items-center gap-3 p-3 border border-slate-100 rounded-2xl bg-slate-50 shadow-inner animate-pulse">
               <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200" />
               <div>
