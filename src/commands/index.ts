@@ -146,9 +146,18 @@ Type a number to open a menu.`.trim();
             } as any, { quoted: m });
           }
         } catch (err: any) {
-          console.error('Failed to send menu with button structure:', err.message);
-          const fallbackText = `${menuText}\n\n📢 Join Official Channel:\nhttps://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n\n💬 Join Support Group:\nhttps://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t`;
-          await sock.sendMessage(from, { text: fallbackText }, { quoted: m });
+          console.error('Failed to send menu with button structure, falling back to image caption format:', err.message);
+          const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');
+          const fallbackText = `${menuText}\n\n📢 *Join Official Channel:*\nhttps://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n\n💬 *Join Support Group:*\nhttps://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t`;
+          
+          if (fs.existsSync(imagePath)) {
+            await sock.sendMessage(from, { 
+              image: fs.readFileSync(imagePath), 
+              caption: fallbackText 
+            }, { quoted: m });
+          } else {
+            await sock.sendMessage(from, { text: fallbackText }, { quoted: m });
+          }
         }
         break;
 

@@ -458,3 +458,25 @@ export const getTerminalForSession = async (sessionId: string): Promise<Terminal
   return found || null;
 };
 
+/**
+ * Retrieve all payment transactions.
+ */
+export const getAllPayments = async (): Promise<PaymentTransaction[]> => {
+  if (getIsFirestoreUsable() && paymentsDb) {
+    try {
+      const snapshot = await paymentsDb.get();
+      const list: PaymentTransaction[] = [];
+      snapshot.forEach(doc => {
+        list.push({ id: doc.id, ...doc.data() } as PaymentTransaction);
+      });
+      // Synchronize in-memory cache
+      list.forEach(tx => inMemoryPayments.set(tx.id, tx));
+      return list;
+    } catch (err: any) {
+      console.warn('[TerminalService] Firestore getAllPayments failed, using in-memory fallbacks:', err.message);
+      handleFirestoreError(err);
+    }
+  }
+  return Array.from(inMemoryPayments.values());
+};
+

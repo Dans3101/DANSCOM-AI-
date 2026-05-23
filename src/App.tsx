@@ -83,6 +83,7 @@ export default function App() {
   const [isActivatingStream, setIsActivatingStream] = useState(false);
   const [isTerminalQRInitializing, setIsTerminalQRInitializing] = useState(false);
   const [localPairingCode, setLocalPairingCode] = useState<string | null>(null);
+  const [transactions, setTransactions] = useState<any[]>([]);
 
   useEffect(() => {
     // 1. Detect if terminal parameters exist
@@ -101,6 +102,12 @@ export default function App() {
     if (pairingViewParam === 'true' && sessionParam) {
       setIsPairingViewOnly(true);
       setPairingViewSessionId(sessionParam);
+      // Automatically bootstrap & activate stream in the background
+      fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sessionParam, terminalId: termParam || 'main_terminal' })
+      }).catch(err => console.error('Auto initializing direct pairing session failed:', err));
     }
 
     if (termParam) {
@@ -197,6 +204,14 @@ export default function App() {
           .then(data => {
             if (Array.isArray(data)) {
                 setSessions(data);
+            }
+          })
+          .catch(() => {});
+
+        safeFetch('/api/payments/transactions')
+          .then(data => {
+            if (Array.isArray(data)) {
+                setTransactions(data);
             }
           })
           .catch(() => {});
@@ -1098,7 +1113,7 @@ export default function App() {
           <div className="lg:col-span-5 bg-white rounded-[2.5rem] border border-slate-200/50 shadow-md p-8 md:p-10 space-y-6">
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2 select-none">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              Active Connected Bots (All Terminals)
+              Active Connected Bots (This Terminal)
             </h3>
 
             {/* Share Portal Link to Connect Other Bots */}
@@ -1145,9 +1160,6 @@ export default function App() {
                             <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                               <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${s.connected ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
                                 {s.connected ? '🟢 Linked Live' : '⚙️ Pending'}
-                              </span>
-                              <span className="text-[8px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
-                                Terminal: {s.terminalId || 'Main'}
                               </span>
                             </div>
                           </div>
@@ -1360,6 +1372,13 @@ export default function App() {
               >
                 <Users className="w-4 h-4 transition-transform group-hover/li:scale-110" />
                 Active Sessions
+              </li>
+              <li 
+                onClick={() => setActiveTab('transactions')}
+                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'transactions' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+              >
+                <CreditCard className="w-4 h-4 transition-transform group-hover/li:scale-110" />
+                Payment Logs
               </li>
             </ul>
           </div>
@@ -1696,6 +1715,91 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+          ) : activeTab === 'transactions' ? (
+            <div className="flex-1 space-y-8">
+              <div>
+                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Financial Transactions</h2>
+                <p className="text-xs text-slate-400">Verifying real-time tenant payments, setup keys, and automated collections history</p>
+              </div>
+
+              {/* Transactions grid/list */}
+              <div className="bg-white border border-slate-100 rounded-[2.5rem] p-8 shadow-sm space-y-4">
+                <div className="flex justify-between items-center pb-2 select-none border-b border-slate-100">
+                  <span className="text-xs font-black text-slate-400 uppercase tracking-wider">Transaction Records ({transactions.length})</span>
+                  <span className="text-[10px] text-indigo-600 font-extrabold uppercase">💰 Powered by IntaSend Ke</span>
+                </div>
+
+                {transactions.length === 0 ? (
+                  <div className="text-center py-12">
+                    <CreditCard className="w-10 h-10 text-slate-205 mx-auto mb-2" />
+                    <p className="text-[11px] text-slate-400 font-black uppercase">No transactions logs recorded yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4 max-h-[40rem] overflow-y-auto pr-2">
+                    {transactions.map(tx => {
+                      const displayId = tx.id;
+                      const displayInvoice = tx.intasendInvoiceId || 'N/A';
+                      const txDate = new Date(tx.createdAt).toLocaleString();
+                      
+                      return (
+                        <div key={tx.id} id={`tx-${tx.id}`} className="p-5 bg-slate-50 border border-slate-200/50 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
+                                tx.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :
+                                tx.status === 'failed' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
+                              }`}>
+                                {tx.status}
+                              </span>
+                              <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wide">
+                                {tx.type}
+                              </span>
+                            </div>
+                            <h4 className="text-xs font-black text-slate-850 uppercase">
+                              KES {tx.amount}.00 • {tx.phoneNumber}
+                            </h4>
+                            <p className="text-[10px] font-mono font-semibold text-slate-500">
+                              BOT: {tx.sessionId} • TERM: {tx.terminalId || 'Unlinked'} • {txDate}
+                            </p>
+                            <div className="text-[9px] font-mono text-slate-400 space-y-0.5">
+                              <p>REF ID: {displayId}</p>
+                              {tx.intasendInvoiceId && <p>INTASEND INVOICE: {tx.intasendInvoiceId}</p>}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button 
+                              onClick={() => {
+                                navigator.clipboard.writeText(displayId);
+                                alert(`Copied checkout reference ID: ${displayId}`);
+                              }}
+                              className="py-2 px-3 bg-white border border-slate-200 hover:text-slate-850 hover:bg-slate-50 text-slate-600 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all shadow-sm flex items-center gap-1 cursor-pointer"
+                              title="Copy checkout/transaction Ref ID"
+                              id={`copy-id-${tx.id}`}
+                            >
+                              <Copy className="w-3.5 h-3.5 text-slate-400" /> Copy ID
+                            </button>
+                            {tx.intasendInvoiceId && (
+                              <button 
+                                onClick={() => {
+                                  navigator.clipboard.writeText(tx.intasendInvoiceId);
+                                  alert(`Copied IntaSend invoice ID: ${tx.intasendInvoiceId}`);
+                                }}
+                                className="py-2 px-3 bg-white border border-slate-200 hover:text-slate-850 hover:bg-slate-50 text-slate-600 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all shadow-sm flex items-center gap-1 cursor-pointer"
+                                title="Copy IntaSend return Invoice ID"
+                                id={`copy-invoice-${tx.id}`}
+                              >
+                                <Copy className="w-3.5 h-3.5 text-slate-400" /> Copy Invoice ID
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           ) : activeTab === 'console' ? (

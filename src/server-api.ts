@@ -309,6 +309,17 @@ app.post('/api/payments/verify', async (req, res) => {
   }
 });
 
+// Retrieve all transactions log inside admin control panel
+app.get('/api/payments/transactions', async (req, res) => {
+  try {
+    const { getAllPayments } = await import('./services/terminalService.js');
+    const list = await getAllPayments();
+    res.json(list);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // API 404 handler - MUST be before Vite/Static middleware
 app.use('/api/*', (req, res) => {
   res.status(404).json({ error: 'API route not found' });
