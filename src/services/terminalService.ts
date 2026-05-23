@@ -1,4 +1,4 @@
-import { terminalsDb, paymentsDb, premiumDb, getIsFirestoreUsable } from '../database/firebase.js';
+import { terminalsDb, paymentsDb, premiumDb, getIsFirestoreUsable, handleFirestoreError } from '../database/firebase.js';
 import admin from 'firebase-admin';
 import axios from 'axios';
 
@@ -65,6 +65,7 @@ export const getAllTerminals = async (): Promise<Terminal[]> => {
       return list;
     } catch (err: any) {
       console.warn('[TerminalService] Firestore getAllTerminals failed, using in-memory fallbacks:', err.message);
+      handleFirestoreError(err);
     }
   }
   return Array.from(inMemoryTerminals.values());
@@ -84,6 +85,7 @@ export const getTerminalById = async (id: string): Promise<Terminal | null> => {
       }
     } catch (err: any) {
       console.warn(`[TerminalService] Firestore getTerminalById ${id} failed:`, err.message);
+      handleFirestoreError(err);
     }
   }
   return inMemoryTerminals.get(id) || null;
@@ -108,6 +110,7 @@ export const createTerminal = async (terminalData: Omit<Terminal, 'createdAt' | 
       console.log(`[TerminalService] Terminal created in Firestore: ${newTerminal.id}`);
     } catch (err: any) {
       console.warn('[TerminalService] Creating terminal in Firestore failed, storing in memory:', err.message);
+      handleFirestoreError(err);
     }
   }
 
@@ -133,6 +136,7 @@ export const addSessionToTerminal = async (terminalId: string, sessionId: string
         });
       } catch (err: any) {
         console.warn(`[TerminalService] update sessionIds for terminal ${terminalId} failed:`, err.message);
+        handleFirestoreError(err);
       }
     }
   }
@@ -175,6 +179,7 @@ export const initiateIntasendPayment = async (params: {
       await paymentsDb.doc(checkoutId).set(transaction);
     } catch (err: any) {
       console.warn('[TerminalService] Failed to save payment transaction to Firestore:', err.message);
+      handleFirestoreError(err);
     }
   }
 
@@ -225,7 +230,9 @@ export const initiateIntasendPayment = async (params: {
           if (realId !== checkoutId) {
             await paymentsDb.doc(realId).set(transaction);
           }
-        } catch (e) {}
+        } catch (e: any) {
+          handleFirestoreError(e);
+        }
       }
 
       return {
@@ -257,7 +264,9 @@ export const verifyIntasendPayment = async (invoiceId: string): Promise<{ succes
       if (doc.exists) {
         transaction = doc.data() as PaymentTransaction;
       }
-    } catch (e) {}
+    } catch (e: any) {
+      handleFirestoreError(e);
+    }
   }
 
   // Backup support for finding by intasendInvoiceId field in Firestore or memory
@@ -276,7 +285,9 @@ export const verifyIntasendPayment = async (invoiceId: string): Promise<{ succes
       if (!snapshot.empty) {
         transaction = snapshot.docs[0].data() as PaymentTransaction;
       }
-    } catch (e) {}
+    } catch (e: any) {
+      handleFirestoreError(e);
+    }
   }
 
   if (!transaction) {
@@ -332,7 +343,9 @@ export const verifyIntasendPayment = async (invoiceId: string): Promise<{ succes
         if (transaction.intasendInvoiceId) {
           await paymentsDb.doc(transaction.intasendInvoiceId).set(transaction);
         }
-      } catch (e) {}
+      } catch (e: any) {
+        handleFirestoreError(e);
+      }
     }
 
     // Activate the subscriber tier
@@ -370,6 +383,7 @@ export const activateSubscription = async (sessionId: string, type: 'setup' | 'w
       }, { merge: true });
     } catch (err: any) {
       console.warn(`[Subscription] Syncing subscription to Firestore for ${userKey} failed:`, err.message);
+      handleFirestoreError(err);
     }
   }
 
@@ -427,6 +441,7 @@ export const isUserPaid = async (identifier: string): Promise<boolean> => {
       }
     } catch (err: any) {
       console.warn(`[Subscription Check] Firestore read for ${key} failed, falling back to permissive mode:`, err.message);
+      handleFirestoreError(err);
       return true; // fail-open defensively on DB failure so users aren't locked out!
     }
   }

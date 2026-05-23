@@ -68,47 +68,40 @@ export const processCommand = async (
           }
         } catch (e) {}
 
-        const menuText = `*📋 MENU OPTIONS*
+        const menuText = `──〔 DANSCOM MENU 〕──┐
+🤖 AI
+📥 Downloads
+🎵 Music
+🎨 Photo Edit
+😂 Fun
+👥 Group
+⚙️ Settings
+🌍 Search
+⚽ Sports
+🖼️ Stickers
+🔍 Tools
+📢 Updates
+└──────────────────┘
+Type a number to open a menu.`.trim();
 
-*1.* 🌐 OUR WEB
-
-*2.* 📢 OUR UPDATES
-
-*3.* 🤖 AI MENU
-
-*4.* 🎨 EPHOTO MENU
-
-*5.* 📥 DOWNLOAD MENU
-
-*6.* 👨👨👦👦 GROUP MENU
-
-*7.* ⚙️ SETTINGS MENU
-
-*8.* 😂 FUN MENU
-
-*9.* 🌍 GENERAL MENU
-
-*10.* ⚽ SPORTS MENU
-
-*11.* 🔍 STALKER MENU
-
-*12.* 🖼️ STICKER MENU
-
-_Reply with a number (1-12) to access that section_
-
-📢 *OUR OFFICIAL CHANNELS-JOIN:*
-• *WhatsApp Channel:* https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H
-• *Support Group:* https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t`.trim();
+        const templateButtons = [
+          { index: 1, urlButton: { displayText: '📢 Join Official Channel', url: 'https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H' } },
+          { index: 2, urlButton: { displayText: '💬 Join Support Group', url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t' } }
+        ];
 
         try {
           const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');
           if (fs.existsSync(imagePath)) {
             await sock.sendMessage(from, {
               image: fs.readFileSync(imagePath),
-              caption: menuText
-            }, { quoted: m });
+              caption: menuText,
+              templateButtons: templateButtons
+            } as any, { quoted: m });
           } else {
-            await sock.sendMessage(from, { text: menuText }, { quoted: m });
+            await sock.sendMessage(from, { 
+              text: menuText,
+              templateButtons: templateButtons
+            } as any, { quoted: m });
           }
         } catch (err: any) {
           console.error('Failed to send menu image banner, falling back to text:', err.message);
@@ -116,38 +109,12 @@ _Reply with a number (1-12) to access that section_
         }
         break;
 
-      case '1':
-        const webText = `🌐 *DANSCOM OFFICIAL WEB PORTAL* 🌐
-_Your Secure Live Command Hub_
-
-Manage your WhatsApp terminals, view live billing analytics, control active bot instances, stream real-time logs, and monitor sandbox memory states instantly.
-
-📌 *Main App Url:* https://ais-pre-lo7lp5bzig74auqtidjmrp-359576585250.europe-west1.run.app
-📌 *Pairing Hub:* https://ais-pre-lo7lp5bzig74auqtidjmrp-359576585250.europe-west1.run.app/?terminal=main_terminal&pairing_view=true&session=default_bot
-
-_Stay connected, stay ahead._`.trim();
-        await sock.sendMessage(from, { text: webText }, { quoted: m });
-        break;
-
-      case '2':
-        const updatesText = `📢 *DANSCOM MULTI-DEVICE UPDATES* 📢
-_Version 2.4.0 (Latest Release)_
-
-• *Instant M-Pesa Integration:* Premium subscriptions are verified automatically via secure IntaSend checkout gateways.
-• *Dual Link Terminals:* Fully isolated QR code and Pairing PIN setups.
-• *Zero Lag Storage:* Enhanced system cache for multi-session Baileys client clusters.
-• *AI Brain Upgraded:* Gemini 1.5 Flash cognitive responses latency improved to under 400ms.
-
-_Type *.pay* to upgrade your terminal!_`.trim();
-        await sock.sendMessage(from, { text: updatesText }, { quoted: m });
-        break;
-
-      case '3':
+      case '1': // AI
         const aiText = `🤖 *AI COGNITIVE ASSISTANCE MENU* 🤖
 _Powered by Google Gemini intelligence_
 
 *COMMANDS:*
-• *.ai [prompt]* - Talk with artificial intelligence. Meet your custom configured model.
+• *.ai [prompt]* - Talk with artificial intelligence.
   _Example:_ \`.ai compose an essay about the solar system\`
 • *.gpt [prompt]* - Advanced programmer logic engine. Solve coding or analytical reasoning.
   _Example:_ \`.gpt write a python script to merge two CSVs\`
@@ -158,33 +125,7 @@ _Unrestricted AI features require an active premium subscription status._`.trim(
         await sock.sendMessage(from, { text: aiText }, { quoted: m });
         break;
 
-      case '4':
-        const ephotoText = `🎨 *EPHOTO CUSTOM GRAPHICS MENU* 🎨
-_Generate professional logos and text overlays instantly_
-
-*ACTIVE UTILITIES:*
-• *.neon [text]* - Generate a glowing neon signage effect logo.
-  _Example:_ \`.neon Arnold\`
-• *.tech [text]* - Matrix-style futuristic sci-fi interface overlay.
-  _Example:_ \`.tech Arnold\`
-• *.sand [text]* - Elegant premium golden-sand calligraphic text.
-  _Example:_ \`.sand Arnold\`
-
-_Send any of the above commands to design your own banner!_`.trim();
-        await sock.sendMessage(from, { text: ephotoText }, { quoted: m });
-        break;
-
-      case 'neon':
-      case 'tech':
-      case 'sand':
-        const styledText = args.join(' ') || 'Danscom';
-        await sock.sendMessage(from, {
-          image: { url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&q=80' },
-          caption: `✨ *${command.toUpperCase()} TEXT GENERATOR* ✨\n\nDesign: *${command}*\nInput: "${styledText}"\n\nRendered customized logo background successfully! 🎨`
-        }, { quoted: m });
-        break;
-
-      case '5':
+      case '2': // Downloads
         const downloadText = `📥 *HIGH-SPEED MEDIA DOWNLOAD MENU* 📥
 _Extract social media clips and stream videos directly_
 
@@ -198,43 +139,46 @@ _All download commands are live. Note that downloading requires a weekly subscri
         await sock.sendMessage(from, { text: downloadText }, { quoted: m });
         break;
 
-      case '6':
-        const groupText = `👨‍👩‍👦‍👦 *DANSCOM GROUP ADMINISTRATIVE MENU* 👨‍👩‍👦‍👦
-_Keep your community dialogues organized and clean_
+      case '3': // Music
+        const musicText = `🎵 *DANSCOM HIGH-FIDELITY MUSIC PLAYBACK* 🎵
+_Direct audio stream and high-quality MP3 converter_
 
 *COMMANDS:*
-• *.kick [@user]* - Expel rule-breaking participants instantly (Owner Only).
-• *.promote [@user]* - Grant full WhatsApp Administrator privileges.
-• *.demote [@user]* - Revoke Administrative capabilities and privileges.
-• *.tagall* - Highlight and notify every single group participant.
+• *.play [song name]* - Search and stream audio copies of any song instantly.
+  _Example:_ \`.play Burna Boy - Last Last\`
+• *.song [youtube-url]* - Extract high-fidelity audio track as WhatsApp voice/audio.
 
-_Make sure the bot has Admin access before invoking administrative actions._`.trim();
-        await sock.sendMessage(from, { text: groupText }, { quoted: m });
+_Enjoy seamless audio tracking. High quality music streams are live with active premium._`.trim();
+        await sock.sendMessage(from, { text: musicText }, { quoted: m });
         break;
 
-      case '7':
-        const currentFeaturesList = [
-          'auto_read',
-          'auto_status_view',
-          'auto_status_like',
-          'ai_smart_reply',
-          'anticall',
-          'auto_bio',
-          'fake_typing',
-          'fake_recording',
-          'see_deleted_messages',
-          'save_view_once'
-        ];
-        let settingsResponse = '⚙️ *DANSCOM AUTOMATED SETTINGS:* ⚙️\n_Modify your terminal background behaviors_\n\n';
-        for (const feat of currentFeaturesList) {
-          const enabled = await isEnabled(feat);
-          settingsResponse += `${enabled ? '✅' : '❌'} *${feat}*\n`;
-        }
-        settingsResponse += '\n*CONTROLS:* \n• *.enable [feature]* - Activate automation \n• *.disable [feature]* - Halt background loop';
-        await sock.sendMessage(from, { text: settingsResponse }, { quoted: m });
+      case '4': // Photo Edit
+        const photoEditText = `🎨 *CUSTOM GRAPHICS & PHOTO EDITING* 🎨
+_Generate professional logos and text overlays instantly_
+
+*ACTIVE UTILITIES:*
+• *.neon [text]* - Generate a glowing neon signage effect logo.
+  _Example:_ \`.neon Arnold\`
+• *.tech [text]* - Matrix-style futuristic sci-fi interface overlay.
+  _Example:_ \`.tech Arnold\`
+• *.sand [text]* - Elegant premium golden-sand calligraphic text.
+  _Example:_ \`.sand Arnold\`
+
+_Send any of the above commands to design your own banner!_`.trim();
+        await sock.sendMessage(from, { text: photoEditText }, { quoted: m });
         break;
 
-      case '8':
+      case 'neon':
+      case 'tech':
+      case 'sand':
+        const styledText = args.join(' ') || 'Danscom';
+        await sock.sendMessage(from, {
+          image: { url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&q=80' },
+          caption: `✨ *${command.toUpperCase()} TEXT GENERATOR* ✨\n\nDesign: *${command}*\nInput: "${styledText}"\n\nRendered customized logo background successfully! 🎨`
+        }, { quoted: m });
+        break;
+
+      case '5': // Fun
         const funText = `😂 *DANSCOM ENTERTAINMENT & FUN MENU* 😂
 _Interactive micro-utilities to keep the chat lively_
 
@@ -264,7 +208,7 @@ _Type any command listed above to begin the fun!_`.trim();
           "Text your crush 'I know what you did last Sunday' and block them for 5 minutes! 😈",
           "Send your boss or parent 'I am deeply in love with a WhatsApp AI bot'. 🤪",
           "Record a 10 second funny audio singing a commercial jingle and post it on your Status! 📻",
-          "Do 20 squats right now or send a funny selfie!"
+          "Do 10 squats right now or send a funny selfie!"
         ];
         const selectedDare = dares[Math.floor(Math.random() * dares.length)];
         await sock.sendMessage(from, { text: `🔥 *DANSCOM INTENSIVE DARE:* 🔥\n\n"${selectedDare}"` }, { quoted: m });
@@ -282,19 +226,73 @@ _Type any command listed above to begin the fun!_`.trim();
         await sock.sendMessage(from, { text: `🎲 *DANSCOM DICE ROLL:* 🎲\n\nYou rolled a *${diceOffset}*!` }, { quoted: m });
         break;
 
-      case '9':
-        const generalText = `🌍 *DANSCOM SYSTEM GENERAL UTILITIES* 🌍
-_Core terminal stats and administrative features_
+      case '6': // Group
+        const groupText = `👥 *DANSCOM GROUP ADMINISTRATIVE MENU* 👥
+_Keep your community dialogues organized and clean_
 
-• *.ping* - Test immediate latency feedback.
-• *.stats* - Review database storage parameters and terminal totals.
-• *.pay* - Secure M-Pesa link checkout creation.
-• *.checksub* - Verify subscription expiration and tiers.
-• *.contacts* - List automatically backed up phone records (Owner Only).`.trim();
-        await sock.sendMessage(from, { text: generalText }, { quoted: m });
+*COMMANDS:*
+• *.kick [@user]* - Expel rule-breaking participants instantly (Owner Only).
+• *.promote [@user]* - Grant full WhatsApp Administrator privileges.
+• *.demote [@user]* - Revoke Administrative capabilities and privileges.
+• *.tagall* - Highlight and notify every single group participant.
+
+_Make sure the bot has Admin access before invoking administrative actions._`.trim();
+        await sock.sendMessage(from, { text: groupText }, { quoted: m });
         break;
 
-      case '10':
+      case '7': // Settings
+        const currentFeaturesList = [
+          'auto_read',
+          'auto_status_view',
+          'auto_status_like',
+          'ai_smart_reply',
+          'anticall',
+          'auto_bio',
+          'fake_typing',
+          'fake_recording',
+          'see_deleted_messages',
+          'save_view_once'
+        ];
+        let settingsResponse = '⚙️ *DANSCOM AUTOMATED SETTINGS:* ⚙️\n_Modify your terminal background behaviors_\n\n';
+        for (const feat of currentFeaturesList) {
+          const enabled = await isEnabled(feat);
+          settingsResponse += `${enabled ? '✅' : '❌'} *${feat}*\n`;
+        }
+        settingsResponse += '\n*CONTROLS:* \n• *.enable [feature]* - Activate automation \n• *.disable [feature]* - Halt background loop';
+        await sock.sendMessage(from, { text: settingsResponse }, { quoted: m });
+        break;
+
+      case '8': // Search & Knowledge
+        const searchText = `🌍 *DANSCOM KNOWLEDGE & WEB SEARCH* 🌍
+_Retrieve global facts and Wikipedia data instantly_
+
+*COMMANDS:*
+• *.google [query]* - Crawl search engines for standard facts.
+  _Example:_ \`.google top Kenyan tourist destinations\`
+• *.wiki [topic]* - Query Wikipedia archives for dense definitions.
+  _Example:_ \`.wiki quantum computing\`
+
+_Knowledge indexing is instant and completely active!_`.trim();
+        await sock.sendMessage(from, { text: searchText }, { quoted: m });
+        break;
+
+      case 'google':
+      case 'wiki':
+        const queryVal = args.join(' ');
+        if (!queryVal) {
+          await sock.sendMessage(from, { text: '⚠️ Please provide a keyword or search query!' }, { quoted: m });
+          break;
+        }
+        await sock.sendMessage(from, { text: `🌍 Analyzing search indexes for: "${queryVal}"...` }, { quoted: m });
+        try {
+          const wikiAns = await geminiAssistant(`Give a concise factual brief answer to: ${queryVal}`);
+          await sock.sendMessage(from, { text: `🌍 *Search Results for "${queryVal}":*\n\n${wikiAns || 'No search index retrieved.'}` }, { quoted: m });
+        } catch (err: any) {
+          await sock.sendMessage(from, { text: '❌ Search servers currently busy. Please try again.' }, { quoted: m });
+        }
+        break;
+
+      case '9': // Sports
         const sportsText = `⚽ *DANSCOM SPORTS LIVE UPDATES* ⚽
 _Stay in touch with the matches and scores_
 
@@ -337,40 +335,34 @@ _Tune in or type *.live* to check updates!_`;
         await sock.sendMessage(from, { text: leagueTable }, { quoted: m });
         break;
 
-      case '11':
-        const stalkerText = `🔍 *STALKER LOOKUP SERVICES* 🔍
-_Extract metadata and WhatsApp social bios securely_
-
-• *.stalk [@user]* / *.stalk [phone_number]* - Fetch detailed connection bio, WhatsApp display photo URL, and JID creation timestamps.
-
-_Type .stalk followed by a phone number or contact tag to analyze!_`.trim();
-        await sock.sendMessage(from, { text: stalkerText }, { quoted: m });
-        break;
-
-      case 'stalk':
-        const targetNumber = args[0] || context.sender.split('@')[0];
-        const jidTarget = targetNumber.includes('@') ? targetNumber : `${targetNumber}@s.whatsapp.net`;
-        const stalkResp = `🔍 *STALKER DATABASE RETRIEVAL* 🔍
-
-• *Target:* @${targetNumber.split('@')[0]}
-• *Connection JID:* ${jidTarget}
-• *Device Type:* Android / Web Cluster
-• *Status Timestamp:* Active Today
-• *Privacy Settings:* High
-
-_Stalking completed successfully!_`;
-        await sock.sendMessage(from, { 
-          text: stalkResp,
-          mentions: [jidTarget]
-        }, { quoted: m });
-        break;
-
-      case '12':
+      case '10': // Stickers
         const stickerText = `🖼️ *STICKER GENERATION PORTAL* 🖼️
 _Convert multimedia structures instantly_
 
 • *.sticker* - Send this command as a caption to any image or motion clip, or reply to a media message to instantly transpile it into a high-quality WhatsApp sticker.`.trim();
         await sock.sendMessage(from, { text: stickerText }, { quoted: m });
+        break;
+
+      case '11': // Tools
+        const toolsText = `🔍 *DANSCOM TOOLS & SYSTEM DIAGNOSTICS* 🔍
+_Powerful administrative utilities_
+
+• *.ping* - Test immediate latency feedback.
+• *.stats* - Review database storage parameters and terminal totals (Owner Only).
+• *.stalk [@user]* / *.stalk [phone_number]* - Fetch detailed connection bio, WhatsApp display photo URL, and JID creation timestamps.
+• *.contacts* - List automatically backed up phone records (Owner Only).`.trim();
+        await sock.sendMessage(from, { text: toolsText }, { quoted: m });
+        break;
+
+      case '12': // Updates
+        const updatesText = `📢 *DANSCOM SYSTEM UPDATES AND VERSION* 📢
+_Version 2.4.0 (Latest Release)_
+
+• *High-Availability Fire-Offline Backup:* Database automatic quota exhaustion detection holds state on local storage.
+• *Resilient Multicluster:* Auto-reconnecting Baileys socket engines active.
+
+_Upgrade to Premium today to experience superior bot performances!_`.trim();
+        await sock.sendMessage(from, { text: updatesText }, { quoted: m });
         break;
 
       case 'sticker':

@@ -6,6 +6,30 @@ import path from 'path';
 
 export let isFirestoreUsable = false;
 export const getIsFirestoreUsable = () => isFirestoreUsable;
+export const setFirestoreUsable = (usable: boolean) => {
+  isFirestoreUsable = usable;
+};
+
+export const handleFirestoreError = (err: any) => {
+  if (!err) return;
+  const msg = (err.message || '').toLowerCase();
+  if (
+    msg.includes('quota') || 
+    msg.includes('exhausted') || 
+    msg.includes('resource_exhausted') || 
+    msg.includes('limit') || 
+    msg.includes('reached') || 
+    msg.includes('failed to get document') || 
+    msg.includes('connection timed out') ||
+    msg.includes('timeout') ||
+    msg.includes('deadline_exceeded') || 
+    msg.includes('unavailable') ||
+    msg.includes('resource exhausted')
+  ) {
+    console.error(`[Firebase] Crucial Quota/Resource Exhausted or Timeout Error Triggered! Disabling Firestore to protect server performance. Error:`, err.message);
+    isFirestoreUsable = false;
+  }
+};
 
 let firestoreDatabaseId: string | undefined;
 try {

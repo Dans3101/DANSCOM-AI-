@@ -8,7 +8,7 @@ import { Boom } from '@hapi/boom';
 import pino from 'pino';
 import QRCode from 'qrcode-terminal';
 import { useFirestoreAuthState } from '../database/firestoreStore.js';
-import { sessionsDb, firestoreReadyPromise, getIsFirestoreUsable } from '../database/firebase.js';
+import { sessionsDb, firestoreReadyPromise, getIsFirestoreUsable, handleFirestoreError } from '../database/firebase.js';
 import { handleMessages } from '../handlers/messageHandler.js';
 import { startAutoBio } from './autobio.js';
 import { isEnabled } from '../utils/settings.js';
@@ -73,6 +73,7 @@ export const getExistingSessions = async (): Promise<string[]> => {
             });
         } catch (e: any) {
             console.error('Failed to retrieve firestore sessions:', e.message || e);
+            handleFirestoreError(e);
         }
     } else {
         try {
