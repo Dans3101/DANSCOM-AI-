@@ -60,4 +60,4 @@ Configure these in your Render deployment or `.env` file:
 - Graceful shutdown handling.
 
 ---
-Built with ❤️ using Google AI Studio.
+Built  BY DANIEL MUSEMBI 
