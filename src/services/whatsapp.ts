@@ -2,7 +2,8 @@ import makeWASocketImport, {
   DisconnectReason, 
   fetchLatestBaileysVersion, 
   WASocket,
-  useMultiFileAuthState
+  useMultiFileAuthState,
+  Browsers
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
@@ -137,14 +138,22 @@ export const getSessionsState = () => {
 export const requestPairingCode = async (number: string, sessionId: string = 'default_bot') => {
     let sess = sessions.get(sessionId);
     
-    // If session exists but is not fully connected, delete and recreate state to ensure fresh keys
+    // Check if session is fully connected and active
     const isConnected = sess && sess.connectionState === 'open' && !!sess.sock?.user;
-    if (sess && !isConnected) {
-        console.log(`[Pairing ${sessionId}] Session exists but is not connected. Force deleting auth state to ensure pristine pairing...`);
+    
+    // If not connected, force delete and clear any previous session (both locally and in Firestore)
+    // to ensure completely fresh, unregistered credentials that won't throw 'Precondition Required'.
+    if (!isConnected) {
+        console.log(`[Pairing ${sessionId}] Session is not connected. Purging auth state (memory/file/firestore) to guarantee fresh pairing keys...`);
         await deleteWhatsAppSession(sessionId).catch(() => {});
         sess = undefined;
+        // Hold for 3 seconds to ensure all asynchronous Firestore deletes and file operations are finished
+        await new Promise(resolve => setTimeout(resolve, 3000));
+    } else {
+        throw new Error('Already connected');
     }
 
+    // Since we successfully purged the session above, we now start it fresh
     if (!sess) {
         await startWhatsAppSession(sessionId);
         sess = sessions.get(sessionId);
@@ -160,6 +169,11 @@ export const requestPairingCode = async (number: string, sessionId: string = 'de
     if (!sess || !sess.sock) throw new Error('WhatsApp socket failed to initialize');
     if (sess.sock.user) throw new Error('Already connected');
     
+    // Wait for the socket connection to establish network handshake and register its presence on WhatsApp servers.
+    // 5 seconds of warm-up delay reliably permits the background socket to complete its TLS negotiaton and connection handshake.
+    console.log(`[Pairing ${sessionId}] Warming up socket connection for 5 seconds before requesting pairing code...`);
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
     sess.pairingNumber = number.replace(/[^0-9]/g, '');
     console.log(`[Pairing ${sessionId}] Requesting code for: ${sess.pairingNumber}`);
     
@@ -215,32 +229,45 @@ export const deleteWhatsAppSession = async (sessionId: string) => {
         sessions.delete(sessionId);
     }
     
+    // 1. Clears All Firestore Documents for this Session Prefix
     const isReady = await firestoreReadyPromise;
     if (sessionsDb && isReady) {
         try {
-            const snapshot = await sessionsDb.get();
-            const batch = sessionsDb.firestore.batch();
-            let count = 0;
-            snapshot.docs.forEach(doc => {
-                if (doc.id.startsWith(`${sessionId}_`)) {
+            // Using precise Firestore prefix index matching is fast and scales
+            const snapshot = await sessionsDb
+                .where('__name__', '>=', `${sessionId}_`)
+                .where('__name__', '<', `${sessionId}_\uf8ff`)
+                .get();
+            
+            if (!snapshot.empty) {
+                const batch = sessionsDb.firestore.batch();
+                snapshot.docs.forEach(doc => {
                     batch.delete(doc.ref);
-                    count++;
-                }
-            });
-            if (count > 0) {
+                });
                 await batch.commit();
+                console.log(`>> [Firebase cleanup] Successfully purged ${snapshot.size} auth database records matching prefix '${sessionId}_'`);
             }
-        } catch (e) {
-            console.error(`Failed to clear firestore session ${sessionId}:`, e);
+        } catch (e: any) {
+            console.error(`>> Failed to sweep Firestore documents for session ${sessionId}:`, e.message);
         }
-    } else {
-        try {
-            const fs = await import('fs');
-            const dir = `auth_info_baileys_${sessionId}`;
+    }
+
+    // 2. Clear BOTH local file folders (the base multi-file-auth folder and the dual-write local fallback folder)
+    try {
+        const fs = await import('fs');
+        const path = await import('path');
+        const directoriesToClean = [
+            `auth_info_baileys_${sessionId}`,
+            path.join(process.cwd(), 'local_auth_fallback', sessionId)
+        ];
+        for (const dir of directoriesToClean) {
             if (fs.existsSync(dir)) {
                 fs.rmSync(dir, { recursive: true, force: true });
+                console.log(`>> [Local cleanup] Successfully deleted local directory: ${dir}`);
             }
-        } catch (e) {}
+        }
+    } catch (e: any) {
+        console.error(`>> Failed to clean up local filesystem paths for session ${sessionId}:`, e.message);
     }
 };
 
@@ -318,7 +345,7 @@ export const startWhatsAppSession = async (sessionId: string) => {
             logger: pino({ level: 'silent' }),
             printQRInTerminal: true,
             auth: state,
-            browser: ['Ubuntu', 'Chrome', '110.0.5563.147'],
+            browser: Browsers.ubuntu('Chrome'),
             generateHighQualityLinkPreview: true,
             syncFullHistory: false,
             connectTimeoutMs: 60000,
