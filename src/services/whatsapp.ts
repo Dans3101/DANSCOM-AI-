@@ -136,13 +136,22 @@ export const getSessionsState = () => {
 
 export const requestPairingCode = async (number: string, sessionId: string = 'default_bot') => {
     let sess = sessions.get(sessionId);
+    
+    // If session exists but is not fully connected, delete and recreate state to ensure fresh keys
+    const isConnected = sess && sess.connectionState === 'open' && !!sess.sock?.user;
+    if (sess && !isConnected) {
+        console.log(`[Pairing ${sessionId}] Session exists but is not connected. Force deleting auth state to ensure pristine pairing...`);
+        await deleteWhatsAppSession(sessionId).catch(() => {});
+        sess = undefined;
+    }
+
     if (!sess) {
         await startWhatsAppSession(sessionId);
         sess = sessions.get(sessionId);
     }
     
     let retry = 0;
-    while ((!sess || !sess.sock) && retry < 15) {
+    while ((!sess || !sess.sock) && retry < 30) {
         await new Promise(resolve => setTimeout(resolve, 500));
         sess = sessions.get(sessionId);
         retry++;
@@ -317,6 +326,7 @@ export const startWhatsAppSession = async (sessionId: string) => {
         });
 
         sess.sock = currentSock;
+        (currentSock as any).sessionId = sessionId;
         
         // For backwards compatibility, expose default bot socket on export var
         if (sessionId === 'default_bot') {
@@ -459,7 +469,7 @@ export const startWhatsAppSession = async (sessionId: string) => {
         });
 
         currentSock.ev.on('call', async (calls) => {
-            if (await isEnabled('anticall')) {
+            if (await isEnabled('anticall', sessionId)) {
                 for (const call of calls) {
                     if (call.status === 'offer') {
                         console.log(`Rejecting call from ${call.from} [Session: ${sessionId}]`);

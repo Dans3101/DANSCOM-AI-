@@ -42,10 +42,19 @@ inMemoryTerminals.set(DEFAULT_TERMINAL_ID, {
 });
 
 export const getIntasendConfig = () => {
+  const publicKey = process.env.INTASEND_PUBLIC_KEY || 'ISPubKey_sandbox_7a030ce6-9040-4da4-8ac9-8eabcfd0e650';
+  const secretKey = process.env.INTASEND_SECRET_KEY || 'ISSecretKey_sandbox_00b0';
+  
+  // Auto-detect live mode: if INTASEND_IS_SANDBOX is explicitly "false",
+  // or if INTASEND_IS_SANDBOX is not set but the public key does not have "sandbox" or has "live".
+  // If no env is configured, default to sandbox
+  const isSandbox = (process.env.INTASEND_IS_SANDBOX === 'true') || 
+                    (!process.env.INTASEND_IS_SANDBOX && (!process.env.INTASEND_PUBLIC_KEY || publicKey.includes('_sandbox_')));
+                    
   return {
-    publicKey: process.env.INTASEND_PUBLIC_KEY || 'ISPubKey_sandbox_7a030ce6-9040-4da4-8ac9-8eabcfd0e650',
-    secretKey: process.env.INTASEND_SECRET_KEY || 'ISSecretKey_sandbox_00b0',
-    isSandbox: process.env.INTASEND_IS_SANDBOX !== 'false'
+    publicKey,
+    secretKey,
+    isSandbox
   };
 };
 
@@ -317,19 +326,19 @@ export const verifyIntasendPayment = async (invoiceId: string): Promise<{ succes
       timeout: 5000
     });
 
-    const state = statusResponse?.data?.invoice?.state || statusResponse?.data?.state;
-    if (state === 'COMPLETE' || state === 'COMPLETED' || statusResponse?.data?.status === 'SUCCESS' || statusResponse?.data?.invoice?.status === 'SUCCESS') {
+    const rawState = statusResponse?.data?.invoice?.state || statusResponse?.data?.state || statusResponse?.data?.status || statusResponse?.data?.invoice?.status;
+    const state = typeof rawState === 'string' ? rawState.toUpperCase() : '';
+    if (state === 'COMPLETE' || state === 'COMPLETED' || state === 'SUCCESS') {
       apiSuccess = true;
     }
   } catch (err: any) {
-    console.warn('[Intasend Status Query] Intasend status query api was unavailable, verifying inside system limits:', err.message);
-    // If it started with ref_ and is a simulated fallback, we can treat it as approved on verification query for testing ease
-    if (invoiceId.startsWith('ref_') || queryInvoiceId.startsWith('ref_')) {
-      apiSuccess = true;
-    }
+    console.warn('[Intasend Status Query] Intasend status query api was unavailable:', err.message);
   }
 
-  if (apiSuccess || invoiceId.startsWith('ref_') || queryInvoiceId.startsWith('ref_')) {
+  // Only allow simulation fallback if isSandbox is true (testing mode)
+  const allowSimulation = config.isSandbox;
+
+  if (apiSuccess || (allowSimulation && (invoiceId.startsWith('ref_') || queryInvoiceId.startsWith('ref_')))) {
     transaction.status = 'completed';
     transaction.completedAt = Date.now();
     inMemoryPayments.set(transaction.id, transaction);

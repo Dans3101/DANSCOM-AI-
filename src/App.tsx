@@ -49,7 +49,7 @@ export default function App() {
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isRestarting, setIsRestarting] = useState(false);
-  const [dbStatus, setDbStatus] = useState<{ isFirestoreUsable: boolean; projectId: string | null; clientEmail: string | null } | null>(null);
+  const [dbStatus, setDbStatus] = useState<{ isFirestoreUsable: boolean; projectId: string | null; clientEmail: string | null; intasendMode?: string | null } | null>(null);
 
   const [stats, setStats] = useState({ totalCommands: 12400, activeUsers: 842, uptime: 0, latency: 48 });
   const [plugins, setPlugins] = useState<any[]>([]);
@@ -182,7 +182,8 @@ export default function App() {
             setDbStatus({
               isFirestoreUsable: hData.isFirestoreUsable,
               projectId: hData.projectId,
-              clientEmail: hData.clientEmail
+              clientEmail: hData.clientEmail,
+              intasendMode: hData.intasendMode
             });
             setConnection(prev => {
               if (!prev.connected) {
@@ -1726,9 +1727,20 @@ export default function App() {
 
               {/* Transactions grid/list */}
               <div className="bg-white border border-slate-100 rounded-[2.5rem] p-8 shadow-sm space-y-4">
-                <div className="flex justify-between items-center pb-2 select-none border-b border-slate-100">
-                  <span className="text-xs font-black text-slate-400 uppercase tracking-wider">Transaction Records ({transactions.length})</span>
-                  <span className="text-[10px] text-indigo-600 font-extrabold uppercase">💰 Powered by IntaSend Ke</span>
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center pb-3 select-none border-b border-slate-100 gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-black text-slate-400 uppercase tracking-wider">Transaction Records ({transactions.length})</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border ${
+                      dbStatus?.intasendMode === 'live' 
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100/60' 
+                        : 'bg-amber-50 text-amber-700 border-amber-100/60'
+                    }`}>
+                      {dbStatus?.intasendMode === 'live' ? '● Real Money Live Mode' : '○ Sandbox Testing Mode'}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-indigo-600 font-extrabold uppercase tracking-wider flex items-center gap-1.5 self-start sm:self-auto">
+                    💰 Powered by IntaSend Ke
+                  </span>
                 </div>
 
                 {transactions.length === 0 ? (

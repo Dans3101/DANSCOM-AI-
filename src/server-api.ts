@@ -57,13 +57,26 @@ const apiLimiter = rateLimit({
 app.use('/api/', apiLimiter);
 
 // API Health check
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'Online (DANSCOM Running)',
-    isFirestoreUsable: getIsFirestoreUsable(),
-    projectId: config.firebase.projectId || null,
-    clientEmail: config.firebase.clientEmail || null
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    const { getIntasendConfig } = await import('./services/terminalService.js');
+    const isSandbox = getIntasendConfig().isSandbox;
+    res.json({ 
+      status: 'Online (DANSCOM Running)',
+      isFirestoreUsable: getIsFirestoreUsable(),
+      projectId: config.firebase.projectId || null,
+      clientEmail: config.firebase.clientEmail || null,
+      intasendMode: isSandbox ? 'sandbox' : 'live'
+    });
+  } catch (err: any) {
+    res.json({ 
+      status: 'Online (DANSCOM Running)',
+      isFirestoreUsable: getIsFirestoreUsable(),
+      projectId: config.firebase.projectId || null,
+      clientEmail: config.firebase.clientEmail || null,
+      intasendMode: 'sandbox'
+    });
+  }
 });
 
 app.get('/api/connection', (req, res) => {

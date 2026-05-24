@@ -99,15 +99,15 @@ Type a number to open a menu.`.trim();
                         {
                           index: 1,
                           urlButton: {
-                            displayText: '📢 Join Official Channel',
+                            displayText: '🔔 JOIN CHANNEL',
                             url: 'https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H'
                           }
                         },
                         {
                           index: 2,
                           urlButton: {
-                            displayText: '💬 Join Support Group',
-                            url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t'
+                            displayText: '💬 JOIN SUPPORT GROUP',
+                            url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1'
                           }
                         }
                       ]
@@ -127,15 +127,15 @@ Type a number to open a menu.`.trim();
                         {
                           index: 1,
                           urlButton: {
-                            displayText: '📢 Join Official Channel',
+                            displayText: '🔔 JOIN CHANNEL',
                             url: 'https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H'
                           }
                         },
                         {
                           index: 2,
                           urlButton: {
-                            displayText: '💬 Join Support Group',
-                            url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t'
+                            displayText: '💬 JOIN SUPPORT GROUP',
+                            url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1'
                           }
                         }
                       ]
@@ -148,7 +148,7 @@ Type a number to open a menu.`.trim();
         } catch (err: any) {
           console.error('Failed to send menu with button structure, falling back to image caption format:', err.message);
           const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');
-          const fallbackText = `${menuText}\n\n📢 *Join Official Channel:*\nhttps://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n\n💬 *Join Support Group:*\nhttps://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t`;
+          const fallbackText = `${menuText}\n\n[ 🔔 JOIN CHANNEL ]\nhttps://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n\n[ 💬 JOIN SUPPORT GROUP ]\nhttps://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1`;
           
           if (fs.existsSync(imagePath)) {
             await sock.sendMessage(from, { 
@@ -278,21 +278,30 @@ _Type any command listed above to begin the fun!_`.trim();
         await sock.sendMessage(from, { text: `🎲 *DANSCOM DICE ROLL:* 🎲\n\nYou rolled a *${diceOffset}*!` }, { quoted: m });
         break;
 
-      case '6': // Group
+      case '6': { // Group
+        const sId = (sock as any).sessionId || 'default_bot';
+        const isAntilinkActive = await isEnabled('antilink', sId);
         const groupText = `👥 *DANSCOM GROUP ADMINISTRATIVE MENU* 👥
 _Keep your community dialogues organized and clean_
 
-*COMMANDS:*
-• *.kick [@user]* - Expel rule-breaking participants instantly (Owner Only).
-• *.promote [@user]* - Grant full WhatsApp Administrator privileges.
-• *.demote [@user]* - Revoke Administrative capabilities and privileges.
-• *.tagall* - Highlight and notify every single group participant.
+*STATUS:*
+• AntiLink Protection: ${isAntilinkActive ? '✅ ACTIVE (Auto-Deletes Links)' : '❌ DISABLED'}
 
-_Make sure the bot has Admin access before invoking administrative actions._`.trim();
+*COMMANDS:*
+• *.kick [@user]* - Expel participant instantly (Admin Only).
+• *.promote [@user]* - Grant full Administrator privileges.
+• *.demote [@user]* - Revoke Administrative privileges.
+• *.tagall [message]* - Annotate and notify all participants.
+• *.enable antilink* - Auto-delete links from non-admins.
+• *.disable antilink* - Stop links removal filter.
+
+_Ensure the bot has admin rights to run administrative actions._`.trim();
         await sock.sendMessage(from, { text: groupText }, { quoted: m });
         break;
+      }
 
-      case '7': // Settings
+      case '7': { // Settings
+        const sId = (sock as any).sessionId || 'default_bot';
         const currentFeaturesList = [
           'auto_read',
           'auto_status_view',
@@ -303,16 +312,18 @@ _Make sure the bot has Admin access before invoking administrative actions._`.tr
           'fake_typing',
           'fake_recording',
           'see_deleted_messages',
-          'save_view_once'
+          'save_view_once',
+          'antilink'
         ];
         let settingsResponse = '⚙️ *DANSCOM AUTOMATED SETTINGS:* ⚙️\n_Modify your terminal background behaviors_\n\n';
         for (const feat of currentFeaturesList) {
-          const enabled = await isEnabled(feat);
+          const enabled = await isEnabled(feat, sId);
           settingsResponse += `${enabled ? '✅' : '❌'} *${feat}*\n`;
         }
         settingsResponse += '\n*CONTROLS:* \n• *.enable [feature]* - Activate automation \n• *.disable [feature]* - Halt background loop';
         await sock.sendMessage(from, { text: settingsResponse }, { quoted: m });
         break;
+      }
 
       case '8': // Search & Knowledge
         const searchText = `🌍 *DANSCOM KNOWLEDGE & WEB SEARCH* 🌍
@@ -426,16 +437,19 @@ _Upgrade to Premium today to experience superior bot performances!_`.trim();
         break;
 
       case 'enable':
-      case 'disable':
+      case 'disable': {
         if (!context.isOwner) return sock.sendMessage(from, { text: 'Owner only command!' }, { quoted: m });
         if (args.length === 0) return sock.sendMessage(from, { text: 'Please specify a feature!' }, { quoted: m });
         const feature = args[0];
         const value = command === 'enable';
-        await setFeature(feature, value);
-        await sock.sendMessage(from, { text: `Feature *${feature}* has been ${value ? 'enabled' : 'disabled'}! ✅` }, { quoted: m });
+        const sId = (sock as any).sessionId || 'default_bot';
+        await setFeature(feature, value, sId);
+        await sock.sendMessage(from, { text: `Feature *${feature}* has been ${value ? 'enabled' : 'disabled'} for this bot JID! ✅` }, { quoted: m });
         break;
+      }
 
-      case 'settings':
+      case 'settings': {
+        const sId = (sock as any).sessionId || 'default_bot';
         const features = [
           'auto_read',
           'auto_status_view',
@@ -446,16 +460,188 @@ _Upgrade to Premium today to experience superior bot performances!_`.trim();
           'fake_typing',
           'fake_recording',
           'see_deleted_messages',
-          'save_view_once'
+          'save_view_once',
+          'antilink'
         ];
         let settingsText = '🛠️ *Bot Feature Controls:* 🛠️\n\n';
         for (const feat of features) {
-          const enabled = await isEnabled(feat);
+          const enabled = await isEnabled(feat, sId);
           settingsText += `${enabled ? '✅' : '❌'} *${feat}*\n`;
         }
         settingsText += '\nUse *.enable [feature]* or *.disable [feature]* to toggle.';
         await sock.sendMessage(from, { text: settingsText }, { quoted: m });
         break;
+      }
+
+      case 'vv': {
+        const contextInfo = m.message?.extendedTextMessage?.contextInfo;
+        const quotedMsg = contextInfo?.quotedMessage;
+        
+        if (!quotedMsg) {
+          await sock.sendMessage(from, { text: '❌ Please reply to a *View Once* media message (image/video) with *.vv* to view it.' }, { quoted: m });
+          break;
+        }
+
+        let realMsg = quotedMsg;
+        const msgType = Object.keys(realMsg)[0];
+        if (msgType === 'viewOnceMessage' || msgType === 'viewOnceMessageV2') {
+          realMsg = realMsg[msgType]?.message || realMsg;
+        }
+
+        const mediaType = Object.keys(realMsg)[0]; // e.g., 'imageMessage', 'videoMessage', 'audioMessage'
+        if (mediaType !== 'imageMessage' && mediaType !== 'videoMessage' && mediaType !== 'audioMessage') {
+          await sock.sendMessage(from, { text: '❌ Replied message is not an image, video, or audio!' }, { quoted: m });
+          break;
+        }
+
+        const mediaMessage = realMsg[mediaType];
+        
+        try {
+          const { downloadContentFromMessage } = await import('@whiskeysockets/baileys');
+          const typeMap: { [key: string]: 'image' | 'video' | 'audio' } = {
+            'imageMessage': 'image',
+            'videoMessage': 'video',
+            'audioMessage': 'audio'
+          };
+          
+          await sock.sendMessage(from, { text: '⏳ *Processing View Once Media Extraction...*' }, { quoted: m });
+          const stream = await downloadContentFromMessage(mediaMessage, typeMap[mediaType]);
+          let buffer = Buffer.from([]);
+          for await (const chunk of stream) {
+            buffer = Buffer.concat([buffer, chunk]);
+          }
+
+          const sendType = typeMap[mediaType];
+          if (sendType === 'image') {
+            await sock.sendMessage(from, { 
+              image: buffer, 
+              caption: '📸 *Here is your View Once Image:*' 
+            }, { quoted: m });
+          } else if (sendType === 'video') {
+            await sock.sendMessage(from, { 
+              video: buffer, 
+              caption: '🎥 *Here is your View Once Video:*' 
+            }, { quoted: m });
+          } else if (sendType === 'audio') {
+            await sock.sendMessage(from, { 
+              audio: buffer, 
+              mimetype: mediaMessage.mimetype || 'audio/ogg'
+            }, { quoted: m });
+          }
+        } catch (downloadErr: any) {
+          console.error('[.vv command error]:', downloadErr);
+          await sock.sendMessage(from, { 
+            text: `❌ *Failed to download View Once media:* ${downloadErr.message}` 
+          }, { quoted: m });
+        }
+        break;
+      }
+
+      case 'kick': {
+        if (!context.isGroup) {
+          await sock.sendMessage(from, { text: '❌ This command can only be used inside groups!' }, { quoted: m });
+          break;
+        }
+        const metadata = await sock.groupMetadata(from);
+        const invoker = metadata.participants.find(p => p.id === context.sender);
+        const invokerIsAdmin = invoker?.admin === 'admin' || invoker?.admin === 'superadmin' || context.isOwner;
+        
+        if (!invokerIsAdmin) {
+          await sock.sendMessage(from, { text: '❌ Only administrators can kick members!' }, { quoted: m });
+          break;
+        }
+
+        const target = m.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || (args[0] ? `${args[0].replace(/[^0-9]/g, '')}@s.whatsapp.net` : null);
+        if (!target) {
+          await sock.sendMessage(from, { text: '❌ Please mention the user or supply their phone number! Example: *.kick @user*' }, { quoted: m });
+          break;
+        }
+
+        try {
+          await sock.groupParticipantsUpdate(from, [target], 'remove');
+          await sock.sendMessage(from, { text: `✅ Removed user @${target.split('@')[0]} from the group successfully.`, mentions: [target] }, { quoted: m });
+        } catch (err: any) {
+          await sock.sendMessage(from, { text: `❌ Removal failed. Please verify that the bot is a group administrator!\n_Error: ${err.message}_` }, { quoted: m });
+        }
+        break;
+      }
+
+      case 'promote': {
+        if (!context.isGroup) {
+          await sock.sendMessage(from, { text: '❌ This command can only be used inside groups!' }, { quoted: m });
+          break;
+        }
+        const metadata = await sock.groupMetadata(from);
+        const invoker = metadata.participants.find(p => p.id === context.sender);
+        const invokerIsAdmin = invoker?.admin === 'admin' || invoker?.admin === 'superadmin' || context.isOwner;
+        
+        if (!invokerIsAdmin) {
+          await sock.sendMessage(from, { text: '❌ Only administrators can promote users!' }, { quoted: m });
+          break;
+        }
+
+        const target = m.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || (args[0] ? `${args[0].replace(/[^0-9]/g, '')}@s.whatsapp.net` : null);
+        if (!target) {
+          await sock.sendMessage(from, { text: '❌ Please mention or use the number of the user to promote! Example: *.promote @user*' }, { quoted: m });
+          break;
+        }
+
+        try {
+          await sock.groupParticipantsUpdate(from, [target], 'promote');
+          await sock.sendMessage(from, { text: `🎉 Congrats @${target.split('@')[0]}, you have been promoted to a Group Administrator!`, mentions: [target] }, { quoted: m });
+        } catch (err: any) {
+          await sock.sendMessage(from, { text: `❌ Failed to promote user. Check bot privileges.\nError: ${err.message}` }, { quoted: m });
+        }
+        break;
+      }
+
+      case 'demote': {
+        if (!context.isGroup) {
+          await sock.sendMessage(from, { text: '❌ This command can only be used inside groups!' }, { quoted: m });
+          break;
+        }
+        const metadata = await sock.groupMetadata(from);
+        const invoker = metadata.participants.find(p => p.id === context.sender);
+        const invokerIsAdmin = invoker?.admin === 'admin' || invoker?.admin === 'superadmin' || context.isOwner;
+        
+        if (!invokerIsAdmin) {
+          await sock.sendMessage(from, { text: '❌ Only administrators can demote members!' }, { quoted: m });
+          break;
+        }
+
+        const target = m.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || (args[0] ? `${args[0].replace(/[^0-9]/g, '')}@s.whatsapp.net` : null);
+        if (!target) {
+          await sock.sendMessage(from, { text: '❌ Please tag or supply the number of the user to demote!' }, { quoted: m });
+          break;
+        }
+
+        try {
+          await sock.groupParticipantsUpdate(from, [target], 'demote');
+          await sock.sendMessage(from, { text: `📉 Demoted @${target.split('@')[0]} back to standard member status.`, mentions: [target] }, { quoted: m });
+        } catch (err: any) {
+          await sock.sendMessage(from, { text: `❌ Failed to demote. Bot might not be admin.\nError: ${err.message}` }, { quoted: m });
+        }
+        break;
+      }
+
+      case 'tagall': {
+        if (!context.isGroup) {
+          await sock.sendMessage(from, { text: '❌ This can only be called in group chats!' }, { quoted: m });
+          break;
+        }
+        
+        const metadata = await sock.groupMetadata(from);
+        const participants = metadata.participants || [];
+        const mentions = participants.map(p => p.id);
+        
+        let tagMessage = `⚔️ *DANSCOM TEAM ALERT* ⚔️\n\n*Message:* ${args.join(' ') || 'No announce details.'}\n\n`;
+        participants.forEach((p, idx) => {
+          tagMessage += `${idx + 1}. @${p.id.split('@')[0]}\n`;
+        });
+        
+        await sock.sendMessage(from, { text: tagMessage, mentions }, { quoted: m });
+        break;
+      }
 
       case 'video':
       case 'ytmp4':

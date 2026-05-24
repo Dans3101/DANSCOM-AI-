@@ -11,39 +11,42 @@ const DEFAULTS: { [key: string]: boolean } = {
   fake_recording: false,
   see_deleted_messages: true,
   save_view_once: true,
+  antilink: false,
 };
 
 const cache: { [key: string]: boolean } = {};
 
-export const isEnabled = async (feature: string): Promise<boolean> => {
-  if (cache[feature] !== undefined) return cache[feature];
+export const isEnabled = async (feature: string, sessionId: string = 'default_bot'): Promise<boolean> => {
+  const cacheKey = `${sessionId}_${feature}`;
+  if (cache[cacheKey] !== undefined) return cache[cacheKey];
   
   if (!getIsFirestoreUsable() || !settingsDb) {
     return DEFAULTS[feature] ?? false;
   }
 
   try {
-    const doc = await settingsDb.doc(feature).get();
+    const doc = await settingsDb.doc(cacheKey).get();
     if (doc.exists) {
-      cache[feature] = doc.data()?.value ?? (DEFAULTS[feature] ?? false);
-      return cache[feature];
+      cache[cacheKey] = doc.data()?.value ?? (DEFAULTS[feature] ?? false);
+      return cache[cacheKey];
     }
   } catch (err: any) {
-    console.warn(`[Settings] Failed to fetch feature ${feature} from Firestore:`, err.message);
+    console.warn(`[Settings] Failed to fetch feature ${feature} for session ${sessionId} from Firestore:`, err.message);
     handleFirestoreError(err);
   }
   
-  cache[feature] = DEFAULTS[feature] ?? false;
-  return cache[feature];
+  cache[cacheKey] = DEFAULTS[feature] ?? false;
+  return cache[cacheKey];
 };
 
-export const setFeature = async (feature: string, value: boolean) => {
-  cache[feature] = value;
+export const setFeature = async (feature: string, value: boolean, sessionId: string = 'default_bot') => {
+  const cacheKey = `${sessionId}_${feature}`;
+  cache[cacheKey] = value;
   if (getIsFirestoreUsable() && settingsDb) {
     try {
-      await settingsDb.doc(feature).set({ value });
+      await settingsDb.doc(cacheKey).set({ value });
     } catch (err: any) {
-      console.warn(`[Settings] Failed to update feature ${feature} in Firestore:`, err.message);
+      console.warn(`[Settings] Failed to update feature ${feature} for session ${sessionId} in Firestore:`, err.message);
       handleFirestoreError(err);
     }
   }
