@@ -61,18 +61,25 @@ export const getExistingSessions = async (): Promise<string[]> => {
     const isReady = await firestoreReadyPromise;
     if (sessionsDb && isReady && getIsFirestoreUsable()) {
         try {
-            const fetchPromise = sessionsDb.get();
-            const timeoutPromise = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('Firestore sessions fetch timed out (3s)')), 3000)
+            const fetchPromise = sessionsDb.get().catch(err => {
+                console.warn('[Firestore sessions fetch background error]:', err.message);
+                return null;
+            });
+            const timeoutPromise = new Promise<null>((resolve) =>
+                setTimeout(() => resolve(null), 3000)
             );
             const snapshot = await Promise.race([fetchPromise, timeoutPromise]) as any;
-            snapshot.docs.forEach((doc: any) => {
-                const id = doc.id;
-                if (id.endsWith('_creds')) {
-                    const sessId = id.substring(0, id.length - 6);
-                    if (sessId && sessId !== 'default_bot') sessionIds.add(sessId);
-                }
-            });
+            if (snapshot && snapshot.docs) {
+                snapshot.docs.forEach((doc: any) => {
+                    const id = doc.id;
+                    if (id.endsWith('_creds')) {
+                        const sessId = id.substring(0, id.length - 6);
+                        if (sessId && sessId !== 'default_bot') sessionIds.add(sessId);
+                    }
+                });
+            } else {
+                console.warn('[Firestore sessions fetch] Timed out or failed to return snapshot.');
+            }
         } catch (e: any) {
             console.error('Failed to retrieve firestore sessions:', e.message || e);
             handleFirestoreError(e);
@@ -300,12 +307,15 @@ export const startWhatsAppSession = async (sessionId: string) => {
         
         let version: [number, number, number] = [2, 3000, 1015942434];
         try {
-            const fetchPromise = fetchLatestBaileysVersion();
-            const timeoutPromise = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('Baileys version fetch timed out (2s)')), 2000)
+            const fetchPromise = fetchLatestBaileysVersion().catch(err => {
+                console.warn('[Baileys Version Fetch background error]:', err.message);
+                return null;
+            });
+            const timeoutPromise = new Promise<null>((resolve) =>
+                setTimeout(() => resolve(null), 2000)
             );
-            const latest = await Promise.race([fetchPromise, timeoutPromise]).catch(() => null);
-            if (latest?.version) {
+            const latest = await Promise.race([fetchPromise, timeoutPromise]);
+            if (latest && latest.version) {
                 version = latest.version;
                 console.log(`>> Using Baileys v${version.join('.')}, isLatest: ${latest.isLatest} [Session: ${sessionId}]`);
             } else {

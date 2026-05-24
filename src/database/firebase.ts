@@ -70,11 +70,17 @@ if (!admin.apps.length) {
   }
 }
 
-export const db = admin.apps.length
-  ? (firestoreDatabaseId 
+let firestoreDb: any = null;
+if (admin.apps.length) {
+  try {
+    firestoreDb = firestoreDatabaseId 
       ? getFirestore(admin.apps[0], firestoreDatabaseId) 
-      : getFirestore(admin.apps[0]))
-  : null;
+      : getFirestore(admin.apps[0]);
+  } catch (err: any) {
+    console.warn('[Firebase] Firestore instance initialization failed at module load:', err.message);
+  }
+}
+export const db = firestoreDb;
 
 export const firestoreReadyPromise = (async () => {
   if (!db) return false;
