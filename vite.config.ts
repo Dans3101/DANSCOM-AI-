@@ -12,13 +12,25 @@ export default defineConfig(({mode}) => {
       {
         name: 'api-middleware-fallback',
         configureServer(server) {
+          let wrapperApp: any = null;
+          let latestApiModule: any = null;
           server.middlewares.use(async (req, res, next) => {
             const parsedUrl = req.url ? req.url.split('?')[0] : '';
             if (parsedUrl.startsWith('/api/') || parsedUrl === '/api') {
               try {
-                // Use Vite's build pipeline to compile and load the typescript API module on the fly
-                const apiModule = await server.ssrLoadModule('./src/server-api.ts');
-                apiModule.app(req as any, res as any, next);
+                latestApiModule = await server.ssrLoadModule('./src/server-api.ts');
+                if (!wrapperApp) {
+                  const express = await import('express');
+                  wrapperApp = express.default();
+                  wrapperApp.use((reqVal: any, resVal: any, nextVal: any) => {
+                    if (latestApiModule && latestApiModule.app) {
+                      latestApiModule.app(reqVal, resVal, nextVal);
+                    } else {
+                      nextVal();
+                    }
+                  });
+                }
+                wrapperApp(req as any, res as any, next);
                 return;
               } catch (err: any) {
                 console.error('[API-Plugin] Request forwarding error:', err.message || err);

@@ -1,4 +1,4 @@
-import { terminalsDb, paymentsDb, premiumDb, getIsFirestoreUsable, handleFirestoreError } from '../database/firebase.js';
+import { terminalsDb, paymentsDb, premiumDb, settingsDb, getIsFirestoreUsable, handleFirestoreError } from '../database/firebase.js';
 import admin from 'firebase-admin';
 import axios from 'axios';
 
@@ -15,6 +15,7 @@ export interface Terminal {
 export interface PaymentTransaction {
   id: string;              // IntaSend tracking ID/invoice ID/checkout ID (our generated ref_)
   intasendInvoiceId?: string; // IntaSend's returned invoice/tracking ID if successful
+  payheroReference?: string;  // Pay Hero returned token/reference if successful
   sessionId: string;
   terminalId: string;
   phoneNumber: string;
@@ -41,6 +42,28 @@ inMemoryTerminals.set(DEFAULT_TERMINAL_ID, {
   sessionIds: ['default_bot']
 });
 
+export const getPayheroConfig = () => {
+  const apiKey = process.env.PAYHERO_API_KEY || '';
+  const username = process.env.PAYHERO_API_USERNAME || '';
+  const password = process.env.PAYHERO_API_PASSWORD || '';
+  const channelId = process.env.PAYHERO_CHANNEL_ID || '1';
+  const serviceId = process.env.PAYHERO_ACCOUNT_ID || '9178';
+  const lipwaLink = process.env.PAYHERO_LIPWA_LINK || `https://lipwa.link/${serviceId}`;
+  
+  // Custom sandbox flag
+  const isSandbox = !username || !password;
+  
+  return {
+    apiKey,
+    username,
+    password,
+    channelId,
+    serviceId,
+    lipwaLink,
+    isSandbox
+  };
+};
+
 export const getIntasendConfig = () => {
   const publicKey = process.env.INTASEND_PUBLIC_KEY || 'ISPubKey_sandbox_7a030ce6-9040-4da4-8ac9-8eabcfd0e650';
   const secretKey = process.env.INTASEND_SECRET_KEY || 'ISSecretKey_sandbox_00b0';
@@ -58,10 +81,19 @@ export const getIntasendConfig = () => {
   };
 };
 
+let lastTerminalsFetch = 0;
+let lastPaymentsFetch = 0;
+const CACHE_TTL_MS = 30000; // 30 seconds
+
 /**
  * Get all terminals.
  */
 export const getAllTerminals = async (): Promise<Terminal[]> => {
+  const now = Date.now();
+  if (now - lastTerminalsFetch < CACHE_TTL_MS && inMemoryTerminals.size > 0) {
+    return Array.from(inMemoryTerminals.values());
+  }
+
   if (getIsFirestoreUsable() && terminalsDb) {
     try {
       const snapshot = await terminalsDb.get();
@@ -71,6 +103,7 @@ export const getAllTerminals = async (): Promise<Terminal[]> => {
       });
       // Synchronize in-memory cache
       list.forEach(t => inMemoryTerminals.set(t.id, t));
+      lastTerminalsFetch = now;
       return list;
     } catch (err: any) {
       console.warn('[TerminalService] Firestore getAllTerminals failed, using in-memory fallbacks:', err.message);
@@ -124,6 +157,7 @@ export const createTerminal = async (terminalData: Omit<Terminal, 'createdAt' | 
   }
 
   inMemoryTerminals.set(newTerminal.id, newTerminal);
+  lastTerminalsFetch = 0; // Invalidate cache
   return newTerminal;
 };
 
@@ -137,6 +171,7 @@ export const addSessionToTerminal = async (terminalId: string, sessionId: string
   if (!terminal.sessionIds.includes(sessionId)) {
     terminal.sessionIds.push(sessionId);
     inMemoryTerminals.set(terminalId, terminal);
+    lastTerminalsFetch = 0; // Invalidate cache
 
     if (getIsFirestoreUsable() && terminalsDb) {
       try {
@@ -152,7 +187,7 @@ export const addSessionToTerminal = async (terminalId: string, sessionId: string
 };
 
 /**
- * Initiates an IntaSend transaction & checkout URL.
+ * Initiates an IntaSend/PayHero transaction & checkout URL.
  */
 export const initiateIntasendPayment = async (params: {
   amount: number;
@@ -163,11 +198,7 @@ export const initiateIntasendPayment = async (params: {
   type: 'setup' | 'weekly';
   hostUrl: string;
 }): Promise<{ checkoutUrl: string; invoiceId: string }> => {
-  const config = getIntasendConfig();
-  const baseUrl = config.isSandbox 
-    ? 'https://sandbox.intasend.com/api/v1' 
-    : 'https://payment.intasend.com/api/v1';
-
+  const payhero = getPayheroConfig();
   const checkoutId = `ref_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
   // Keep transaction record
@@ -183,6 +214,7 @@ export const initiateIntasendPayment = async (params: {
   };
 
   inMemoryPayments.set(checkoutId, transaction);
+  lastPaymentsFetch = 0; // Invalidate cache
   if (getIsFirestoreUsable() && paymentsDb) {
     try {
       await paymentsDb.doc(checkoutId).set(transaction);
@@ -200,66 +232,65 @@ export const initiateIntasendPayment = async (params: {
     cleanPhone = '254' + cleanPhone;
   }
 
-  try {
-    const payload = {
-      public_key: config.publicKey,
-      amount: params.amount,
-      currency: 'KES',
-      email: params.email || 'customer@danscom.com',
-      first_name: 'Danscom',
-      last_name: 'Subscriber',
-      phone_number: cleanPhone,
-      redirect_url: `${params.hostUrl}?payment_status=completed&invoice_id=${checkoutId}`,
-      api_ref: checkoutId
-    };
-
-    console.log(`[Intasend] Requesting checkout to: ${baseUrl}/checkout/ payload:`, payload);
-
-    const checkOutResponse = await axios.post(`${baseUrl}/checkout/`, payload, {
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      timeout: 10000
-    });
-
-    if (checkOutResponse.data && checkOutResponse.data.url) {
-      const realId = checkOutResponse.data.id || checkoutId;
-      
-      // Keep key 'checkoutId' intact as primary reference, but register the Intasend realId for status checks
-      transaction.intasendInvoiceId = realId;
-      
-      inMemoryPayments.set(checkoutId, transaction);
-      if (realId !== checkoutId) {
-        inMemoryPayments.set(realId, transaction);
-      }
-      
-      if (getIsFirestoreUsable() && paymentsDb) {
-        try {
-          await paymentsDb.doc(checkoutId).set(transaction);
-          if (realId !== checkoutId) {
-            await paymentsDb.doc(realId).set(transaction);
-          }
-        } catch (e: any) {
-          handleFirestoreError(e);
-        }
-      }
-
-      return {
-        checkoutUrl: checkOutResponse.data.url,
-        invoiceId: checkoutId
+  // If live credentials are set, trigger an automatic M-pesa STK Push via Pay Hero
+  if (!payhero.isSandbox) {
+    try {
+      const payload = {
+        amount: params.amount,
+        phone_number: cleanPhone,
+        channel_id: payhero.channelId,
+        service_id: payhero.serviceId,
+        reference: checkoutId,
+        callback_url: `${params.hostUrl}/api/payhero/callback`
       };
+
+      console.log(`[PayHero] Initiating STK push via API endpoint... reference: ${checkoutId}`);
+      const authHeader = 'Basic ' + Buffer.from(`${payhero.username}:${payhero.password}`).toString('base64');
+
+      const apiResponse = await axios.post('https://backend.payhero.co.ke/api/v1/apps/express/new', payload, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': authHeader
+        },
+        timeout: 10000
+      });
+
+      if (apiResponse.data) {
+        const payheroRef = apiResponse.data.reference || apiResponse.data.checkout_request_id || apiResponse.data.id;
+        if (payheroRef) {
+          const refStr = payheroRef.toString();
+          transaction.payheroReference = refStr;
+          inMemoryPayments.set(refStr, transaction);
+          if (getIsFirestoreUsable() && paymentsDb) {
+            await paymentsDb.doc(checkoutId).set(transaction);
+            await paymentsDb.doc(refStr).set(transaction);
+          }
+        }
+        console.log('[PayHero API] STK Push payload successfully routed and accepted.');
+      }
+    } catch (err: any) {
+      console.warn('[PayHero STK Push Failed] Falling back directly to redirection link:', err.response?.data || err.message);
     }
-  } catch (err: any) {
-    console.warn('[Intasend API] Integration request failed, launching interactive sandbox interface fallback:', err.message);
   }
 
-  // Absolute robust simulator fallback for smooth AI Studio user preview/testing when Keys are missing or API times out
+  // If credentials are live, return the real Pay Hero Lipwa Link checkout page
+  if (!payhero.isSandbox) {
+    const customLipwaUrl = `${payhero.lipwaLink}?amount=${params.amount}&phone=${cleanPhone}&reference=${checkoutId}`;
+    return {
+      checkoutUrl: customLipwaUrl,
+      invoiceId: checkoutId
+    };
+  }
+
+  // Absolute robust simulator fallback for smooth AI Studio user preview/testing when Keys are missing
   const gatewayUrl = `${params.hostUrl}?is_simulator=true&invoice_id=${checkoutId}&amount=${params.amount}&phone=${cleanPhone}`;
   return {
     checkoutUrl: gatewayUrl,
     invoiceId: checkoutId
   };
 };
+
+export const initiatePayheroPayment = initiateIntasendPayment;
 
 /**
  * Verifies or changes the payment status. Sets the subscription to active if paid.
@@ -278,21 +309,27 @@ export const verifyIntasendPayment = async (invoiceId: string): Promise<{ succes
     }
   }
 
-  // Backup support for finding by intasendInvoiceId field in Firestore or memory
+  // Backup support for finding by intasendInvoiceId or payheroReference fields in memory
   if (!transaction) {
     for (const tx of inMemoryPayments.values()) {
-      if (tx.intasendInvoiceId === invoiceId) {
+      if (tx.intasendInvoiceId === invoiceId || tx.payheroReference === invoiceId) {
         transaction = tx;
         break;
       }
     }
   }
 
+  // Backup support in Firestore
   if (!transaction && getIsFirestoreUsable() && paymentsDb) {
     try {
-      const snapshot = await paymentsDb.where('intasendInvoiceId', '==', invoiceId).limit(1).get();
+      let snapshot = await paymentsDb.where('intasendInvoiceId', '==', invoiceId).limit(1).get();
       if (!snapshot.empty) {
         transaction = snapshot.docs[0].data() as PaymentTransaction;
+      } else {
+        snapshot = await paymentsDb.where('payheroReference', '==', invoiceId).limit(1).get();
+        if (!snapshot.empty) {
+          transaction = snapshot.docs[0].data() as PaymentTransaction;
+        }
       }
     } catch (e: any) {
       handleFirestoreError(e);
@@ -304,53 +341,36 @@ export const verifyIntasendPayment = async (invoiceId: string): Promise<{ succes
     return { success: false, transaction: null };
   }
 
-  const config = getIntasendConfig();
-  const baseUrl = config.isSandbox 
-    ? 'https://sandbox.intasend.com/api/v1' 
-    : 'https://payment.intasend.com/api/v1';
+  const payhero = getPayheroConfig();
+  let apiSuccess = (transaction.status === 'completed');
 
-  let apiSuccess = false;
-
-  // Use Intasend's invoice ID for status query if configured, otherwise fallback to local tracking ID
-  const queryInvoiceId = transaction.intasendInvoiceId || transaction.id;
-
-  // Attempt real IntaSend status query
-  try {
-    const statusPayload = {
-      public_key: config.publicKey,
-      invoice_id: queryInvoiceId
-    };
-
-    const statusResponse = await axios.post(`${baseUrl}/payment/status/`, statusPayload, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 5000
-    });
-
-    const rawState = statusResponse?.data?.invoice?.state || statusResponse?.data?.state || statusResponse?.data?.status || statusResponse?.data?.invoice?.status;
-    const state = typeof rawState === 'string' ? rawState.toUpperCase() : '';
-    if (state === 'COMPLETE' || state === 'COMPLETED' || state === 'SUCCESS') {
-      apiSuccess = true;
-    }
-  } catch (err: any) {
-    console.warn('[Intasend Status Query] Intasend status query api was unavailable:', err.message);
-  }
+  const queryInvoiceId = transaction.payheroReference || transaction.intasendInvoiceId || transaction.id;
 
   // Only allow simulation fallback if isSandbox is true (testing mode)
-  const allowSimulation = config.isSandbox;
+  const allowSimulation = payhero.isSandbox;
 
   if (apiSuccess || (allowSimulation && (invoiceId.startsWith('ref_') || queryInvoiceId.startsWith('ref_')))) {
     transaction.status = 'completed';
     transaction.completedAt = Date.now();
     inMemoryPayments.set(transaction.id, transaction);
+    
     if (transaction.intasendInvoiceId) {
       inMemoryPayments.set(transaction.intasendInvoiceId, transaction);
     }
+    if (transaction.payheroReference) {
+      inMemoryPayments.set(transaction.payheroReference, transaction);
+    }
+    
+    lastPaymentsFetch = 0; // Invalidate cache
 
     if (getIsFirestoreUsable() && paymentsDb) {
       try {
         await paymentsDb.doc(transaction.id).set(transaction);
         if (transaction.intasendInvoiceId) {
           await paymentsDb.doc(transaction.intasendInvoiceId).set(transaction);
+        }
+        if (transaction.payheroReference) {
+          await paymentsDb.doc(transaction.payheroReference).set(transaction);
         }
       } catch (e: any) {
         handleFirestoreError(e);
@@ -364,6 +384,8 @@ export const verifyIntasendPayment = async (invoiceId: string): Promise<{ succes
 
   return { success: false, transaction };
 };
+
+export const verifyPayheroPayment = verifyIntasendPayment;
 
 /**
  * Activates or extends subscription for the session or connected phone number.
@@ -471,6 +493,11 @@ export const getTerminalForSession = async (sessionId: string): Promise<Terminal
  * Retrieve all payment transactions.
  */
 export const getAllPayments = async (): Promise<PaymentTransaction[]> => {
+  const now = Date.now();
+  if (now - lastPaymentsFetch < CACHE_TTL_MS && inMemoryPayments.size > 0) {
+    return Array.from(inMemoryPayments.values());
+  }
+
   if (getIsFirestoreUsable() && paymentsDb) {
     try {
       const snapshot = await paymentsDb.get();
@@ -480,6 +507,7 @@ export const getAllPayments = async (): Promise<PaymentTransaction[]> => {
       });
       // Synchronize in-memory cache
       list.forEach(tx => inMemoryPayments.set(tx.id, tx));
+      lastPaymentsFetch = now;
       return list;
     } catch (err: any) {
       console.warn('[TerminalService] Firestore getAllPayments failed, using in-memory fallbacks:', err.message);
@@ -488,4 +516,42 @@ export const getAllPayments = async (): Promise<PaymentTransaction[]> => {
   }
   return Array.from(inMemoryPayments.values());
 };
+
+export interface SessionMetadata {
+  clientName: string;
+  clientPhone: string;
+}
+
+const inMemoryMetadata = new Map<string, SessionMetadata>();
+
+export const saveSessionMetadata = async (sessionId: string, clientName: string, clientPhone: string): Promise<void> => {
+  inMemoryMetadata.set(sessionId, { clientName, clientPhone });
+  if (getIsFirestoreUsable() && settingsDb) {
+    try {
+      await settingsDb.doc(`metadata_${sessionId}`).set({ clientName, clientPhone });
+    } catch (e: any) {
+      console.warn(`[TerminalService] Failed to save session metadata for ${sessionId}:`, e.message);
+    }
+  }
+};
+
+export const getSessionMetadata = async (sessionId: string): Promise<SessionMetadata | null> => {
+  if (inMemoryMetadata.has(sessionId)) {
+    return inMemoryMetadata.get(sessionId) || null;
+  }
+  if (getIsFirestoreUsable() && settingsDb) {
+    try {
+      const doc = await settingsDb.doc(`metadata_${sessionId}`).get();
+      if (doc.exists) {
+        const data = doc.data() as SessionMetadata;
+        inMemoryMetadata.set(sessionId, data);
+        return data;
+      }
+    } catch (e: any) {
+      console.warn(`[TerminalService] Failed to get session metadata for ${sessionId}:`, e.message);
+    }
+  }
+  return null;
+};
+
 

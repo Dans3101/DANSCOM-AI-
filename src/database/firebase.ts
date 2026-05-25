@@ -86,11 +86,22 @@ export const firestoreReadyPromise = (async () => {
   if (!db) return false;
   try {
     // Implement a 3-second timeout for the initial Firestore network check
-    const listCollectionsPromise = db.listCollections();
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Firestore network check timed out (3s)')), 3000)
+    // Return errors as values to prevent any unhandled promise rejections after the timeout
+    const listCollectionsPromise = db.listCollections()
+      .then(() => 'success' as const)
+      .catch((err: any) => {
+        return err;
+      });
+    const timeoutPromise = new Promise<'timeout'>((resolve) =>
+      setTimeout(() => resolve('timeout' as const), 3000)
     );
-    await Promise.race([listCollectionsPromise, timeoutPromise]);
+    const result = await Promise.race([listCollectionsPromise, timeoutPromise]);
+    
+    if (result === 'timeout') {
+      throw new Error('Firestore network check timed out (3s)');
+    } else if (result instanceof Error) {
+      throw result;
+    }
     
     isFirestoreUsable = true;
     console.log('Firestore is ready and accessible with database ID:', firestoreDatabaseId || '(default)');

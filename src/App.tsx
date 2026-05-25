@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
 import { 
@@ -84,6 +84,9 @@ export default function App() {
   const [isTerminalQRInitializing, setIsTerminalQRInitializing] = useState(false);
   const [localPairingCode, setLocalPairingCode] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [clientNameInput, setClientNameInput] = useState('');
+  const [clientPhoneInput, setClientPhoneInput] = useState('');
+  const [isDetailsSubmitted, setIsDetailsSubmitted] = useState(false);
 
   useEffect(() => {
     // 1. Detect if terminal parameters exist
@@ -102,12 +105,29 @@ export default function App() {
     if (pairingViewParam === 'true' && sessionParam) {
       setIsPairingViewOnly(true);
       setPairingViewSessionId(sessionParam);
-      // Automatically bootstrap & activate stream in the background
-      fetch('/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sessionParam, terminalId: termParam || 'main_terminal' })
-      }).catch(err => console.error('Auto initializing direct pairing session failed:', err));
+      
+      // Fetch session metadata if exists
+      fetch(`/api/sessions/${sessionParam}/metadata`)
+        .then(res => {
+          if (res.ok) return res.json();
+          throw new Error('No metadata');
+        })
+        .then(data => {
+          if (data && data.clientName) {
+            setClientNameInput(data.clientName);
+            setClientPhoneInput(data.clientPhone);
+            setPairingInputPhone(data.clientPhone);
+            setIsDetailsSubmitted(true);
+            
+            // Automatically bootstrap & activate stream in the background
+            fetch('/api/sessions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionId: sessionParam, terminalId: termParam || 'main_terminal' })
+            }).catch(err => console.error('Auto initializing direct pairing session failed:', err));
+          }
+        })
+        .catch(err => console.warn('No metadata retrieved or initial setup required:', err.message));
     }
 
     if (termParam) {
@@ -543,6 +563,72 @@ export default function App() {
       }
     };
 
+    const handleDetailsSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!clientNameInput.trim()) {
+        alert('Please enter your Name!');
+        return;
+      }
+      if (!clientPhoneInput.trim()) {
+        alert('Please enter your WhatsApp Phone Number!');
+        return;
+      }
+      
+      setIsRequestingPairing(true);
+      setPairingError(null);
+      try {
+        // 1. Save metadata on server
+        await fetch(`/api/sessions/${pairingViewSessionId}/metadata`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientName: clientNameInput, clientPhone: clientPhoneInput })
+        });
+        
+        // 2. Reflect on input
+        setPairingInputPhone(clientPhoneInput);
+        
+        // 3. Start session on server
+        await fetch('/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: pairingViewSessionId, terminalId: activeTerminalId || 'main_terminal' })
+        });
+        
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // 4. Request pairing PIN automatically
+        const res = await fetch('/api/request-pairing', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ number: clientPhoneInput, sessionId: pairingViewSessionId })
+        });
+        
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({ error: 'Request rejected' }));
+          throw new Error(errData.error || 'Pairing PIN generation failed.');
+        }
+
+        const data = await res.json();
+        if (data.code) {
+          setLocalPairingCode(data.code);
+          setIsDetailsSubmitted(true);
+          
+          // Refresh sessions
+          const sessRes = await fetch('/api/sessions');
+          if (sessRes.ok) {
+            const resultData = await sessRes.json();
+            if (Array.isArray(resultData)) setSessions(resultData);
+          }
+        } else {
+          setPairingError(data.error || 'Failed to generate pairing PIN.');
+        }
+      } catch (err: any) {
+        setPairingError(err.message || 'Failed to start stream or configure numbers.');
+      } finally {
+        setIsRequestingPairing(false);
+      }
+    };
+
     return (
       <div className="min-h-screen w-full bg-slate-50 text-slate-900 font-sans flex flex-col justify-start">
         {/* Custom Isolated connection bar */}
@@ -587,15 +673,81 @@ export default function App() {
           </div>
 
           {/* Quick status feedback banner */}
-          {activeSessState?.connected && (
-            <div className="bg-emerald-50 border border-emerald-200 px-6 py-8 rounded-[2rem] text-center select-none space-y-2">
-              <span className="text-3xl">🎉</span>
-              <p className="text-xs font-black text-emerald-800 uppercase tracking-widest mt-1">DEVICE LINKED SUCCESSFULLY</p>
-              <p className="text-[10px] text-emerald-600 font-semibold">Your WhatsApp session is live and listening on all commands securely!</p>
+          {activeSessState?.connected ? (
+            <div className="bg-emerald-50 border border-emerald-200 p-8 rounded-[2rem] text-center select-none space-y-4 shadow-sm animate-fade-in max-w-2xl mx-auto">
+              <span className="text-4xl">🎉</span>
+              <p className="text-sm font-black text-emerald-800 uppercase tracking-widest mt-1">DEVICE LINKED SUCCESSFULLY</p>
+              <div className="max-w-md mx-auto p-4 bg-white rounded-2xl border border-emerald-100 text-left space-y-2 text-slate-900 shadow-sm">
+                <p className="text-xs">
+                  <strong className="uppercase">Operator Name:</strong> {clientNameInput || activeSessState?.clientName || "User Connected"}
+                </p>
+                <p className="text-xs font-mono">
+                  <strong className="font-sans uppercase">WhatsApp Number:</strong> {clientPhoneInput || activeSessState?.clientPhone || activeSessState?.pairingNumber || "Connected JID"}
+                </p>
+              </div>
+              <p className="text-[10.5px] text-slate-500 uppercase font-black tracking-widest leading-relaxed bg-amber-50 rounded-xl py-3.5 px-4 border border-amber-100/60 transition-all max-w-lg mx-auto text-amber-800 text-center">
+                🔒 SECURITY ENFORCED: This pairing link is now locked because it is in use. It cannot connect other bots unless this bot session is disconnected or deleted from the main terminal.
+              </p>
             </div>
-          )}
+          ) : !isDetailsSubmitted ? (
+            /* PLACE TO ENTER NAME AND PHONE NUMBER - CLEAN AND RESTRICTED */
+            <div className="bg-white rounded-[2.5rem] border border-slate-200/60 shadow-xl p-8 max-w-md mx-auto space-y-6">
+              <div className="text-center space-y-1">
+                <h3 className="text-base font-black text-slate-800 uppercase tracking-tight">Enter Your Details</h3>
+                <p className="text-xs text-slate-400">Provide your name and phone number to start pairing</p>
+              </div>
+
+              <form onSubmit={handleDetailsSubmit} className="space-y-4 text-left">
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5 label text-left">Operator Name</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. John Doe"
+                    required
+                    value={clientNameInput}
+                    onChange={(e) => setClientNameInput(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5 label text-left">WhatsApp Mobile Number</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. 254712345678"
+                    required
+                    value={clientPhoneInput}
+                    onChange={(e) => setClientPhoneInput(e.target.value.replace(/[^0-9]/g, ''))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono text-slate-900"
+                  />
+                </div>
+
+                {pairingError && (
+                  <div className="bg-rose-50 border border-rose-100 text-rose-600 p-3 rounded-xl text-[10px] font-bold text-center">
+                    {pairingError}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isRequestingPairing}
+                  className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] cursor-pointer text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all shadow-md flex items-center justify-center gap-2"
+                >
+                  {isRequestingPairing ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Generating pairing codes...
+                    </>
+                  ) : (
+                    "🚀 Create Pairing and QR Code"
+                  )}
+                </button>
+              </form>
+            </div>
+          ) : null}
 
           {/* Central Grid holding only QR Code & Pairing Code Methods */}
+          {!activeSessState?.connected && isDetailsSubmitted && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
             
             {/* METHOD A: SCAN QR CODE */}
@@ -671,24 +823,18 @@ export default function App() {
                       </button>
                     </div>
                   ) : (
-                    <div className="space-y-3">
-                      <div>
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5 text-center">Enter WhatsApp Mobile Number</label>
-                        <input 
-                          type="text" 
-                          placeholder="e.g. 254712345678"
-                          value={pairingInputPhone}
-                          onChange={(e) => setPairingInputPhone(e.target.value.replace(/[^0-9]/g, ''))}
-                          className="w-full bg-white border border-slate-200 rounded-2xl py-2.5 px-4 text-xs font-semibold text-center focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-mono"
-                        />
+                    <div className="space-y-4 text-center">
+                      <div className="p-3 bg-indigo-50/55 rounded-2xl border border-indigo-100/30">
+                        <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest block mb-1">Target Phone</span>
+                        <p className="text-sm font-mono font-black text-slate-750">{clientPhoneInput || pairingInputPhone || "Not Set"}</p>
                       </div>
 
                       <button
                         onClick={handleReqPairingCodeOnly}
-                        disabled={isRequestingPairing || !pairingInputPhone}
-                        className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-[10px] font-black uppercase tracking-widest rounded-2xl transition-all shadow-md flex items-center justify-center gap-2"
+                        disabled={isRequestingPairing}
+                        className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
                       >
-                        {isRequestingPairing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🔗 Generate Pairing Pin'}
+                        {isRequestingPairing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🔗 Request Pairing PinKey'}
                       </button>
                     </div>
                   )}
@@ -701,6 +847,7 @@ export default function App() {
             </div>
 
           </div>
+          )}
 
           {/* User friendly troubleshooting notes */}
           {pairingError && (
@@ -718,7 +865,7 @@ export default function App() {
     );
   }
 
-  // --- RENDERING INTASEND GATEWAY SIMULATOR PAGE ---
+  // --- RENDERING PAY HERO GATEWAY SIMULATOR PAGE ---
   if (isSimulator) {
     const params = new URLSearchParams(window.location.search);
     const invoiceId = params.get('invoice_id') || 'sim_invoice_123';
@@ -736,7 +883,7 @@ export default function App() {
         <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-[2.5rem] p-8 space-y-8 text-center shadow-2xl">
           <div className="flex items-center justify-center gap-2">
             <div className="w-3.5 h-3.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-black text-emerald-400 uppercase tracking-widest">IntaSend Checkout Simulator</span>
+            <span className="text-xs font-black text-emerald-400 uppercase tracking-widest">Pay Hero Checkout Simulator</span>
           </div>
           
           <div>
@@ -778,7 +925,7 @@ export default function App() {
           </div>
 
           <p className="text-[9px] text-slate-600 leading-tight">
-            IntaSend multi-tenant microfinance simulation. This processes custom sandboxed parameters without accessing live bank API accounts.
+            Pay Hero multi-tenant microfinance simulation. This processes custom sandboxed parameters without accessing live bank API accounts.
           </p>
         </div>
       </div>
@@ -863,7 +1010,7 @@ export default function App() {
                       <h4 className="text-[10px] font-black uppercase tracking-wide text-indigo-300">Pay subscription</h4>
                     </div>
                     <p className="text-[10px] text-slate-400 leading-normal">
-                      Once connected successfully, the secure automated IntaSend checkout activates to authorize all prefix bot processes &amp; commands.
+                      Once connected successfully, the secure automated Pay Hero / M-Pesa checkout activates to authorize all prefix bot processes &amp; commands.
                     </p>
                   </div>
 
@@ -893,7 +1040,7 @@ export default function App() {
               {/* Verification Status Banner */}
               {terminalVerificationStatus === 'verifying' && (
                 <div className="bg-slate-50 border border-slate-100 p-6 rounded-3xl text-center space-y-1 select-none animate-pulse">
-                  <p className="text-xs font-black text-slate-500 uppercase tracking-widest">🔄 CALLING INTASEND GATEWAY...</p>
+                  <p className="text-xs font-black text-slate-500 uppercase tracking-widest">🔄 CALLING PAY HERO GATEWAY...</p>
                   <p className="text-[10px] text-slate-400 font-medium">Authenticating credentials and checking transaction status.</p>
                 </div>
               )}
@@ -906,7 +1053,7 @@ export default function App() {
               {terminalVerificationStatus === 'failed' && (
                 <div className="bg-rose-55 border border-rose-200/40 p-5 rounded-3xl text-center space-y-1 select-none">
                   <p className="text-xs font-black text-rose-700 uppercase tracking-widest">❌ TRANSACTION EXPIRED OR INVALID</p>
-                  <p className="text-[10px] text-rose-500 font-medium">Could not verify checkout status instantly via IntaSend. Please try again.</p>
+                  <p className="text-[10px] text-rose-500 font-medium">Could not verify checkout status instantly via Pay Hero. Please try again.</p>
                 </div>
               )}
 
@@ -1067,7 +1214,7 @@ export default function App() {
                       {terminalVerificationStatus === 'success' ? (
                         <div className="p-5 bg-emerald-500/10 border border-emerald-200 rounded-3xl select-none flex items-center justify-center gap-3">
                           <Check className="w-5 h-5 text-emerald-650" />
-                          <span className="text-[11px] font-black text-emerald-800 uppercase tracking-wide">ACTIVE: Setup & Subscription Verified Cleared via IntaSend</span>
+                          <span className="text-[11px] font-black text-emerald-800 uppercase tracking-wide">ACTIVE: Setup & Subscription Verified Cleared via Pay Hero</span>
                         </div>
                       ) : isSessConnected ? (
                         <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-200/60 flex flex-col gap-4 animate-fade-in shadow-sm">
@@ -1086,7 +1233,7 @@ export default function App() {
                             className="w-full mt-2 py-4 bg-slate-900 hover:bg-slate-850 active:scale-[0.99] text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
                           >
                             {terminalPaymentPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
-                            {terminalPaymentPending ? '🔄 Contacting IntaSend Gateway...' : '🔒 Complete Authorized Pay via IntaSend'}
+                            {terminalPaymentPending ? '🔄 Contacting Pay Hero Gateway...' : '🔒 Complete Authorized Pay via Pay Hero'}
                           </button>
                         </div>
                       ) : (
@@ -1731,15 +1878,15 @@ export default function App() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-black text-slate-400 uppercase tracking-wider">Transaction Records ({transactions.length})</span>
                     <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border ${
-                      dbStatus?.intasendMode === 'live' 
+                      dbStatus?.payheroMode === 'live' 
                         ? 'bg-emerald-50 text-emerald-700 border-emerald-100/60' 
                         : 'bg-amber-50 text-amber-700 border-amber-100/60'
                     }`}>
-                      {dbStatus?.intasendMode === 'live' ? '● Real Money Live Mode' : '○ Sandbox Testing Mode'}
+                      {dbStatus?.payheroMode === 'live' ? '● Real Money Live Mode' : '○ Sandbox Testing Mode'}
                     </span>
                   </div>
                   <span className="text-[10px] text-indigo-600 font-extrabold uppercase tracking-wider flex items-center gap-1.5 self-start sm:self-auto">
-                    💰 Powered by IntaSend Ke
+                    💰 Powered by Pay Hero Ke
                   </span>
                 </div>
 
@@ -1777,6 +1924,7 @@ export default function App() {
                             </p>
                             <div className="text-[9px] font-mono text-slate-400 space-y-0.5">
                               <p>REF ID: {displayId}</p>
+                              {tx.payheroReference && <p>PAY HERO REF: {tx.payheroReference}</p>}
                               {tx.intasendInvoiceId && <p>INTASEND INVOICE: {tx.intasendInvoiceId}</p>}
                             </div>
                           </div>
@@ -1793,17 +1941,18 @@ export default function App() {
                             >
                               <Copy className="w-3.5 h-3.5 text-slate-400" /> Copy ID
                             </button>
-                            {tx.intasendInvoiceId && (
+                            {(tx.payheroReference || tx.intasendInvoiceId) && (
                               <button 
                                 onClick={() => {
-                                  navigator.clipboard.writeText(tx.intasendInvoiceId);
-                                  alert(`Copied IntaSend invoice ID: ${tx.intasendInvoiceId}`);
+                                  const cRef = tx.payheroReference || tx.intasendInvoiceId;
+                                  navigator.clipboard.writeText(cRef);
+                                  alert(`Copied Pay Hero reference: ${cRef}`);
                                 }}
                                 className="py-2 px-3 bg-white border border-slate-200 hover:text-slate-850 hover:bg-slate-50 text-slate-600 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all shadow-sm flex items-center gap-1 cursor-pointer"
-                                title="Copy IntaSend return Invoice ID"
+                                title="Copy Pay Hero reference"
                                 id={`copy-invoice-${tx.id}`}
                               >
-                                <Copy className="w-3.5 h-3.5 text-slate-400" /> Copy Invoice ID
+                                <Copy className="w-3.5 h-3.5 text-slate-400" /> Copy Ref ID
                               </button>
                             )}
                           </div>
@@ -1823,7 +1972,7 @@ export default function App() {
 
               <div className="flex-1 bg-slate-950 border border-slate-800 rounded-[2.5rem] p-6 font-mono text-slate-200 text-xs shadow-2xl h-[35rem] overflow-y-auto space-y-2 select-text">
                 <p className="text-slate-500 select-none">[System Bootstrap Server running successfully on PORT: 3000]</p>
-                <p className="text-slate-400 select-none">[IntaSend multi-tenant microfinance listener initiated]</p>
+                <p className="text-slate-400 select-none">[Pay Hero multi-tenant microfinance listener initiated]</p>
                 <p className="text-slate-400 select-none">[Firestore dynamic state machine successfully configured]</p>
                 <p className="text-emerald-400 font-bold">[Active bot listener running. Ready to receive commands]</p>
               </div>

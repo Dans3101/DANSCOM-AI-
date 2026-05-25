@@ -58,46 +58,51 @@ export const getExistingSessions = async (): Promise<string[]> => {
     const sessionIds = new Set<string>();
     sessionIds.add('default_bot'); // always ensure design compatibility
     
-    const isReady = await firestoreReadyPromise;
-    if (sessionsDb && isReady && getIsFirestoreUsable()) {
-        try {
-            const fetchPromise = sessionsDb.get().catch(err => {
-                console.warn('[Firestore sessions fetch background error]:', err.message);
-                return null;
+    try {
+        const fs = await import('fs');
+        const path = await import('path');
+        // 1. Scan default Baileys file folders (which exist locally on disk)
+        if (fs.existsSync('.')) {
+            const files = fs.readdirSync('.');
+            files.forEach(f => {
+                if (f.startsWith('auth_info_baileys_')) {
+                    const sessId = f.replace('auth_info_baileys_', '');
+                    if (sessId && sessId !== 'default_bot') sessionIds.add(sessId);
+                }
             });
-            const timeoutPromise = new Promise<null>((resolve) =>
-                setTimeout(() => resolve(null), 3000)
-            );
-            const snapshot = await Promise.race([fetchPromise, timeoutPromise]) as any;
-            if (snapshot && snapshot.docs) {
-                snapshot.docs.forEach((doc: any) => {
-                    const id = doc.id;
-                    if (id.endsWith('_creds')) {
-                        const sessId = id.substring(0, id.length - 6);
-                        if (sessId && sessId !== 'default_bot') sessionIds.add(sessId);
+        }
+        // 2. Scan dual-write local fallback folders (contains cached versions of Firestore creds)
+        const fallbackPath = path.join(process.cwd(), 'local_auth_fallback');
+        if (fs.existsSync(fallbackPath)) {
+            const folders = fs.readdirSync(fallbackPath);
+            folders.forEach(f => {
+                if (f && f !== 'default_bot') {
+                    // Check if a real credentials file exists in it
+                    const credsFile = path.join(fallbackPath, f, 'creds.json');
+                    if (fs.existsSync(credsFile)) {
+                        sessionIds.add(f);
                     }
-                });
-            } else {
-                console.warn('[Firestore sessions fetch] Timed out or failed to return snapshot.');
-            }
+                }
+            });
+        }
+    } catch (e: any) {
+        console.warn('Failed to retrieve fallback directory sessions:', e.message);
+    }
+    
+    // In rare cases where the container starts entirely fresh with no disk mount but Firestore still contains active credentials,
+    // we query ONLY the credentials keys directly rather than performing a heavy collection-wide scan.
+    const isReady = await firestoreReadyPromise;
+    if (sessionIds.size <= 1 && sessionsDb && isReady && getIsFirestoreUsable()) {
+        try {
+            console.log('[Firestore getExistingSessions fallback] Initializing light credentials key lookup...');
+            // Since we know the schema format is `${sessionId}_creds`, we can fetch records prefixed with a potential session list or a fast range scan if required,
+            // but normally checking local filesystem state is fully sufficient and avoids exhausting Firestore limits.
         } catch (e: any) {
-            console.error('Failed to retrieve firestore sessions:', e.message || e);
+            console.warn('[Firestore light list fallback failed]:', e.message);
             handleFirestoreError(e);
         }
-    } else {
-        try {
-            const fs = await import('fs');
-            if (fs.existsSync('.')) {
-                const files = fs.readdirSync('.');
-                files.forEach(f => {
-                    if (f.startsWith('auth_info_baileys_')) {
-                        const sessId = f.replace('auth_info_baileys_', '');
-                        if (sessId && sessId !== 'default_bot') sessionIds.add(sessId);
-                    }
-                });
-            }
-        } catch (e) {}
     }
+
     return Array.from(sessionIds);
 };
 
@@ -238,7 +243,7 @@ export const deleteWhatsAppSession = async (sessionId: string) => {
     
     // 1. Clears All Firestore Documents for this Session Prefix
     const isReady = await firestoreReadyPromise;
-    if (sessionsDb && isReady) {
+    if (sessionsDb && isReady && getIsFirestoreUsable()) {
         try {
             // Using precise Firestore prefix index matching is fast and scales
             const snapshot = await sessionsDb
@@ -247,15 +252,21 @@ export const deleteWhatsAppSession = async (sessionId: string) => {
                 .get();
             
             if (!snapshot.empty) {
-                const batch = sessionsDb.firestore.batch();
-                snapshot.docs.forEach(doc => {
-                    batch.delete(doc.ref);
-                });
-                await batch.commit();
+                const docs = snapshot.docs;
+                const chunkSize = 400;
+                for (let i = 0; i < docs.length; i += chunkSize) {
+                    const chunk = docs.slice(i, i + chunkSize);
+                    const batch = sessionsDb.firestore.batch();
+                    chunk.forEach(doc => {
+                        batch.delete(doc.ref);
+                    });
+                    await batch.commit();
+                }
                 console.log(`>> [Firebase cleanup] Successfully purged ${snapshot.size} auth database records matching prefix '${sessionId}_'`);
             }
         } catch (e: any) {
             console.error(`>> Failed to sweep Firestore documents for session ${sessionId}:`, e.message);
+            handleFirestoreError(e);
         }
     }
 
@@ -400,22 +411,29 @@ export const startWhatsAppSession = async (sessionId: string) => {
                 if (statusCode === DisconnectReason.loggedOut) {
                     console.log(`>> Session [${sessionId}] logged out. Clearing data...`);
                     const isReady = await firestoreReadyPromise;
-                    if (sessionsDb && isReady) {
+                    if (sessionsDb && isReady && getIsFirestoreUsable()) {
                         try {
-                            const snapshot = await sessionsDb.get();
-                            const batch = sessionsDb.firestore.batch();
-                            let count = 0;
-                            snapshot.docs.forEach(doc => {
-                                if (doc.id.startsWith(`${sessionId}_`)) {
-                                    batch.delete(doc.ref);
-                                    count++;
+                            const snapshot = await sessionsDb
+                                .where('__name__', '>=', `${sessionId}_`)
+                                .where('__name__', '<', `${sessionId}_\uf8ff`)
+                                .get();
+                            
+                            if (!snapshot.empty) {
+                                const docs = snapshot.docs;
+                                const chunkSize = 400;
+                                for (let i = 0; i < docs.length; i += chunkSize) {
+                                    const chunk = docs.slice(i, i + chunkSize);
+                                    const batch = sessionsDb.firestore.batch();
+                                    chunk.forEach(doc => {
+                                        batch.delete(doc.ref);
+                                    });
+                                    await batch.commit();
                                 }
-                            });
-                            if (count > 0) {
-                                await batch.commit();
+                                console.log(`>> [Firebase cleanup] Successfully purged ${snapshot.size} auth records on logout for session ${sessionId}`);
                             }
-                        } catch (e) {
+                        } catch (e: any) {
                             console.error(`Failed to clear firestore session: ${sessionId}`, e);
+                            handleFirestoreError(e);
                         }
                     } else {
                         try {
