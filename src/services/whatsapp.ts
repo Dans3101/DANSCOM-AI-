@@ -506,9 +506,26 @@ export const startWhatsAppSession = async (sessionId: string) => {
                             }
                         }
 
-                        await currentSock.sendMessage(userJid, {
-                            text: welcomeText
-                        });
+                        try {
+                            const fs = await import('fs');
+                            const path = await import('path');
+                            const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');
+                            if (fs.existsSync(imagePath)) {
+                                await currentSock.sendMessage(userJid, {
+                                    image: fs.readFileSync(imagePath),
+                                    caption: welcomeText
+                                });
+                            } else {
+                                await currentSock.sendMessage(userJid, {
+                                    text: welcomeText
+                                });
+                            }
+                        } catch (imgErr: any) {
+                            console.warn('>> Failed to load/send welcome banner image, falling back to text:', imgErr.message);
+                            await currentSock.sendMessage(userJid, {
+                                text: welcomeText
+                            });
+                        }
                         console.log(`>> Congrats welcome and subscription payload sent to ${userJid}`);
                     } catch (err: any) {
                         console.error('>> Failed to send connection congratulations message:', err.message);

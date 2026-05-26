@@ -1017,6 +1017,8 @@ export default function App() {
   const invoiceParam = new URLSearchParams(window.location.search).get('invoice_id');
   if (invoiceParam && !isSimulator) {
     const amount = new URLSearchParams(window.location.search).get('amount') || '5';
+    const terminIdRef = new URLSearchParams(window.location.search).get('terminal') || '';
+    const goBackUrl = terminIdRef ? `/?terminal=${terminIdRef}` : '/';
     
     return (
       <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center justify-center p-6 font-sans">
@@ -1153,6 +1155,13 @@ export default function App() {
 
               {/* Multi-action verification options */}
               <div className="space-y-2.5 pt-2 text-center">
+                <button 
+                  onClick={() => { window.location.href = goBackUrl; }}
+                  className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-550 active:scale-[0.99] text-white text-xs font-bold uppercase tracking-widest rounded-2xl transition-all shadow-md flex items-center justify-center gap-1.5"
+                >
+                  👈 Go Back to Portal Setup
+                </button>
+
                 <button 
                   onClick={() => window.location.reload()}
                   className="w-full py-3.5 bg-slate-850 hover:bg-slate-800 active:scale-[0.99] border border-slate-800 text-white text-xs font-bold uppercase tracking-widest rounded-2xl transition-all"

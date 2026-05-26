@@ -1,7 +1,7 @@
 import { WASocket, proto } from '@whiskeysockets/baileys';
 import { setFeature, isEnabled } from '../utils/settings.js';
 import { geminiAssistant } from '../services/gemini.js';
-import { analyticsDb, premiumDb, contactsDb, usersDb, getIsFirestoreUsable } from '../database/firebase.js';
+import { analyticsDb, premiumDb, contactsDb, usersDb, sessionsDb, getIsFirestoreUsable } from '../database/firebase.js';
 import { isUserPaid, initiateIntasendPayment, getLatestPendingPayment, verifyIntasendPayment, getPayheroConfig } from '../services/terminalService.js';
 import admin from 'firebase-admin';
 import fs from 'fs';
@@ -80,21 +80,49 @@ export const processCommand = async (
       case 'menu':
       case 'allmenu':
       case 'help': {
-        const currentDate = new Date().toLocaleDateString('en-GB');
-        const currentTime = new Date().toLocaleTimeString('en-GB', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const currentDate = new Date().toLocaleDateString('en-GB', { timeZone: 'Africa/Nairobi' });
+        const currentTime = new Date().toLocaleTimeString('en-GB', { 
+          timeZone: 'Africa/Nairobi',
+          hour12: false, 
+          hour: '2-digit', 
+          minute: '2-digit', 
+          second: '2-digit' 
+        });
         
         const now = Date.now();
         if (now - lastMenuUsersFetch > MENU_USERS_TTL) {
           try {
-            if (getIsFirestoreUsable() && usersDb) {
-              const countSnap = await usersDb.count().get().catch(() => null);
-              if (countSnap) {
-                const realCount = countSnap.data().count;
-                cachedMenuUsersCount = Math.max(5066, realCount + 5065);
-                lastMenuUsersFetch = now;
+            if (getIsFirestoreUsable()) {
+              let realCount = 0;
+              
+              if (usersDb) {
+                const countSnap = await usersDb.count().get().catch(() => null);
+                if (countSnap) {
+                  realCount += countSnap.data().count;
+                }
               }
+              
+              if (contactsDb) {
+                const countSnap2 = await contactsDb.count().get().catch(() => null);
+                if (countSnap2) {
+                  realCount += countSnap2.data().count;
+                }
+              }
+              
+              if (sessionsDb) {
+                const countSnap3 = await sessionsDb.count().get().catch(() => null);
+                if (countSnap3) {
+                  realCount += countSnap3.data().count;
+                }
+              }
+
+              // Base simulated count is 5066 + real registered database entries
+              cachedMenuUsersCount = 5066 + realCount;
+              lastMenuUsersFetch = now;
             }
-          } catch (e) {}
+          } catch (e) {
+            console.warn('[Menu Users Count] Failed to update count:', e);
+          }
         }
 
         const usersCount = cachedMenuUsersCount;
@@ -916,9 +944,18 @@ An M-Pesa SIM ToolKit popup has been triggered directly on the phone *+${targetP
           if (pending) {
             const verificationResult = await verifyIntasendPayment(pending.id);
             if (verificationResult.success) {
-              await sock.sendMessage(from, { 
-                text: `✅ *Payment Verified Successfully!* 🎉\n\nThank you for activating your DANSCOM weekly subscription!\nEnjoy premium AI, unrestricted media downloads, and active tools.\n\nType *.menu* to get started.` 
-              }, { quoted: m });
+              const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');
+              const successText = `✅ *Payment Verified Successfully!* 🎉\n\nThank you for activating your DANSCOM weekly subscription!\nEnjoy premium AI, unrestricted media downloads, and active tools.\n\nType *.menu* to get started.`;
+              if (fs.existsSync(imagePath)) {
+                await sock.sendMessage(from, { 
+                  image: fs.readFileSync(imagePath),
+                  caption: successText 
+                }, { quoted: m });
+              } else {
+                await sock.sendMessage(from, { 
+                  text: successText 
+                }, { quoted: m });
+              }
             } else {
               await sock.sendMessage(from, { 
                 text: `⏳ *Payment Still Pending:* We are waiting for M-Pesa notification for reference \`${pending.id}\`.\n\nIf you have already entered your PIN on your phone, wait a few seconds and try *.checksub* again.\n\nType *.pay* to re-initiate the prompt.` 
