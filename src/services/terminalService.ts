@@ -51,7 +51,7 @@ export const getPayheroConfig = () => {
   const lipwaLink = process.env.PAYHERO_LIPWA_LINK || `https://lipwa.link/${serviceId}`;
   
   // Custom sandbox flag
-  const isSandbox = !username || !password;
+  const isSandbox = (process.env.PAYHERO_IS_SANDBOX === 'true') || !username || !password;
   
   return {
     apiKey,
@@ -244,18 +244,38 @@ export const initiateIntasendPayment = async (params: {
         callback_url: `${params.hostUrl}/api/payhero/callback`
       };
 
-      console.log(`[PayHero] Initiating STK push via API endpoint... reference: ${checkoutId}`);
       const authHeader = 'Basic ' + Buffer.from(`${payhero.username}:${payhero.password}`).toString('base64');
+      let apiResponse: any = null;
+      let usedEndpoint = 'https://backend.payhero.co.ke/api/v1/apps/express/new';
 
-      const apiResponse = await axios.post('https://backend.payhero.co.ke/api/v1/apps/express/new', payload, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': authHeader
-        },
-        timeout: 10000
-      });
+      try {
+        console.log(`[PayHero] Initiating STK push via API endpoint: ${usedEndpoint}`);
+        apiResponse = await axios.post(usedEndpoint, payload, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': authHeader
+          },
+          timeout: 10000
+        });
+      } catch (firstErr: any) {
+        const errorMsg = firstErr.response?.data?.error_message || firstErr.response?.data?.message || firstErr.message || '';
+        // If the endpoint is not found or returns 404/Endpoint not found, fallback to the direct v1 path without /api/
+        if (errorMsg.includes('Endpoint not found') || firstErr.response?.status === 404) {
+          usedEndpoint = 'https://backend.payhero.co.ke/v1/apps/express/new';
+          console.log(`[PayHero Retry] Primary endpoint failed with 'Endpoint not found'. Retrying with: ${usedEndpoint}`);
+          apiResponse = await axios.post(usedEndpoint, payload, {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': authHeader
+            },
+            timeout: 10000
+          });
+        } else {
+          throw firstErr;
+        }
+      }
 
-      if (apiResponse.data) {
+      if (apiResponse && apiResponse.data) {
         const payheroRef = apiResponse.data.reference || apiResponse.data.checkout_request_id || apiResponse.data.id;
         if (payheroRef) {
           const refStr = payheroRef.toString();
@@ -266,7 +286,7 @@ export const initiateIntasendPayment = async (params: {
             await paymentsDb.doc(refStr).set(transaction);
           }
         }
-        console.log('[PayHero API] STK Push payload successfully routed and accepted.');
+        console.log('[PayHero API] STK Push payload successfully routed and accepted via', usedEndpoint);
       }
     } catch (err: any) {
       console.warn('[PayHero STK Push Failed] Falling back directly to redirection link:', err.response?.data || err.message);
@@ -434,50 +454,72 @@ export const activateSubscription = async (sessionId: string, type: 'setup' | 'w
  * Checks if a bot session or sender JID has paid active subscription.
  */
 export const isUserPaid = async (identifier: string): Promise<boolean> => {
-  if (!identifier) {
-    return false;
-  }
-  // Always true for owner to avoid locking admin sessions
-  if (identifier === 'default_bot' || identifier.includes('owner')) {
+  const userKey = identifier.replace(/[^a-z0-9_]/g, '').toLowerCase();
+  
+  // Owner bypass
+  const cleanNum = identifier.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+  const ownerNum = (process.env.OWNER_NUMBER || '254713811622').replace(/[^0-9]/g, '');
+  if (cleanNum === ownerNum || cleanNum === '254713811622') {
     return true;
   }
 
-  const key = identifier.split(':')[0].split('@')[0].replace(/[^a-z0-9_]/g, '');
-
-  // Check memory cache first
+  // 1. Check in-memory cache
   const premiumCache = global as any;
-  if (premiumCache.danscomPremium?.has(key)) {
-    const data = premiumCache.danscomPremium.get(key);
-    if (data.expiry > new Date()) return true;
+  if (premiumCache.danscomPremium && premiumCache.danscomPremium.has(userKey)) {
+    const sub = premiumCache.danscomPremium.get(userKey);
+    if (sub && sub.expiry && new Date(sub.expiry) > new Date()) {
+      return true;
+    }
   }
 
+  // 2. Check Firestore
   if (getIsFirestoreUsable() && premiumDb) {
     try {
-      const doc = await premiumDb.doc(key).get();
+      const doc = await premiumDb.doc(userKey).get();
       if (doc.exists) {
         const data = doc.data();
-        const expiry = data?.expiry?.toDate() || new Date(0);
-        
-        // Sync cache
-        if (!premiumCache.danscomPremium) {
-          premiumCache.danscomPremium = new Map();
+        if (data && data.expiry) {
+          const expiry = data.expiry.toDate ? data.expiry.toDate() : new Date(data.expiry);
+          const isValid = expiry > new Date();
+          if (isValid) {
+            // Update cache
+            if (!premiumCache.danscomPremium) {
+              premiumCache.danscomPremium = new Map<string, any>();
+            }
+            premiumCache.danscomPremium.set(userKey, {
+              sessionId: identifier,
+              expiry,
+              type: data.type || 'weekly'
+            });
+            return true;
+          }
         }
-        premiumCache.danscomPremium.set(key, {
-          sessionId: data?.sessionId || key,
-          expiry,
-          type: data?.type || 'weekly'
-        });
-
-        if (expiry > new Date()) return true;
       }
-    } catch (err: any) {
-      console.warn(`[Subscription Check] Firestore read for ${key} failed, falling back to permissive mode:`, err.message);
-      handleFirestoreError(err);
-      return true; // fail-open defensively on DB failure so users aren't locked out!
+    } catch (e: any) {
+      console.warn('[isUserPaid] Firestore query error:', e.message);
     }
   }
 
   return false;
+};
+
+/**
+ * Retrieve the latest pending payment for a given sessionId/sender.
+ */
+export const getLatestPendingPayment = async (sessionId: string): Promise<PaymentTransaction | null> => {
+  try {
+    const payments = await getAllPayments();
+    // Filter payments for this sessionId that are pending
+    const pending = payments.filter(p => p.sessionId === sessionId && p.status === 'pending');
+    if (pending.length === 0) return null;
+    
+    // Sort descending by createdAt
+    pending.sort((a, b) => b.createdAt - a.createdAt);
+    return pending[0];
+  } catch (error) {
+    console.warn('[TerminalService] getLatestPendingPayment error:', error);
+    return null;
+  }
 };
 
 /**

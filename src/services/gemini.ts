@@ -25,7 +25,7 @@ export const geminiAssistant = async (prompt: string, systemInstruction?: string
   try {
     const ai = getGenAI();
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-3.5-flash",
       contents: prompt,
       config: {
         systemInstruction: systemInstruction || "You are a helpful WhatsApp assistant bot. Be concise and friendly.",

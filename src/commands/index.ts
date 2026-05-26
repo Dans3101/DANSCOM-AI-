@@ -2,7 +2,7 @@ import { WASocket, proto } from '@whiskeysockets/baileys';
 import { setFeature, isEnabled } from '../utils/settings.js';
 import { geminiAssistant } from '../services/gemini.js';
 import { analyticsDb, premiumDb, contactsDb, usersDb, getIsFirestoreUsable } from '../database/firebase.js';
-import { isUserPaid, initiateIntasendPayment } from '../services/terminalService.js';
+import { isUserPaid, initiateIntasendPayment, getLatestPendingPayment, verifyIntasendPayment, getPayheroConfig } from '../services/terminalService.js';
 import admin from 'firebase-admin';
 import fs from 'fs';
 import path from 'path';
@@ -10,18 +10,40 @@ import path from 'path';
 const sendPaymentTrigger = async (sock: WASocket, m: any, from: string, sender: string) => {
   const phone = sender.split('@')[0].split(':')[0];
   try {
+    const payheroConfig = getPayheroConfig();
+    const appUrl = process.env.APP_URL || (process.env.NODE_ENV === 'production' 
+      ? 'https://ais-pre-lo7lp5bzig74auqtidjmrp-359576585250.europe-west1.run.app'
+      : 'https://ais-dev-lo7lp5bzig74auqtidjmrp-359576585250.europe-west1.run.app');
+
     const checkDetails = await initiateIntasendPayment({
       amount: 5,
       email: `${phone}@danscom.com`,
       phoneNumber: phone,
-      sessionId: 'default_bot',
+      sessionId: sender, // Use full sender JID to activate this specific user correctly!
       terminalId: 'main_terminal',
       type: 'weekly',
-      hostUrl: 'https://ais-dev-lo7lp5bzig74auqtidjmrp-359576585250.europe-west1.run.app'
+      hostUrl: appUrl
     });
     
+    const isSandbox = payheroConfig.isSandbox;
+    let explanation = '';
+    
+    if (isSandbox) {
+      explanation = `🧪 *Sandbox Payment Mode:*
+Since this application is currently running in trial/sandbox mode, no real money will be charged.
+To simulate a successful payment instantly and activate your features, simply reply with:
+👉 *.checksub*`;
+    } else {
+      explanation = `📲 *M-Pesa STK Push Sent!*
+An automated payment pop-up of *5 KES* has been requested directly on phone *+${phone}*.
+
+1. Check your phone screen for the M-Pesa PIN prompt.
+2. Enter your M-Pesa PIN to authorize the payment.
+3. Wait 5-10 seconds and reply with *.checksub* to instantly activate!`;
+    }
+
     await sock.sendMessage(from, { 
-      text: `⚠️ *Authorization Key Required* 💳\n\nThis command requires an active subscription state (5 KES weekly).\n\nPlease upgrade securely and complete automated checkout immediately using IntaSend:\n\n🔗 *Payment Link:* ${checkDetails.checkoutUrl}\n\n_Once M-Pesa / Card payment is successfully completed, type *.checksub* to immediately activate all features!_`
+      text: `⚠️ *Authorization Key Required* 💳\n\nThis command requires an active subscription state (5 KES weekly).\n\n${explanation}\n\n🔗 *Payment Link Fallback:* ${checkDetails.checkoutUrl}`
     }, { quoted: m });
   } catch (e) {
     await sock.sendMessage(from, { text: '❌ *IntaSend Payment Server Offline:* Please retry in a few moments.' }, { quoted: m });
@@ -244,18 +266,15 @@ export const processCommand = async (
       case 'audio':
       case 'ringtone':
       case 'spotify':
-      case 'soundcloud': {
+      case 'soundcloud':
+      case 'audiomack':
+      case 'ytmp3': {
         const querySong = args.join(' ');
-        if (!querySong && (command === 'play' || command === 'ringtone')) {
-          return sock.sendMessage(from, { text: '⚠️ Please provide a song name!' }, { quoted: m });
-        }
-        
-        // Check payment first
-        if (!(await isUserPaid(context.sender))) {
-          return sendPaymentTrigger(sock, m, from, context.sender);
+        if (!querySong) {
+          return sock.sendMessage(from, { text: '⚠️ Please provide a song name or streaming web link!' }, { quoted: m });
         }
 
-        await sock.sendMessage(from, { text: `⏳ *Fetching and playing audio track:* "${querySong || 'Track Selection'}"... 🎵\nPreparing high-fidelity stream playback...` }, { quoted: m });
+        await sock.sendMessage(from, { text: `⏳ *Fetching and playing audio track:* "${querySong}"... 🎵\nPreparing high-fidelity stream playback from servers...` }, { quoted: m });
         
         setTimeout(async () => {
           try {
@@ -274,21 +293,26 @@ export const processCommand = async (
       case 'video':
       case 'ytmp4':
       case 'fb':
+      case 'facebook':
       case 'ig':
-      case 'tiktok': {
+      case 'instagram':
+      case 'tiktok':
+      case 'tt':
+      case 'twitter':
+      case 'youtube':
+      case 'yt': {
         const urlVal = args[0] || '';
-        // Check payment first
-        if (!(await isUserPaid(context.sender))) {
-          return sendPaymentTrigger(sock, m, from, context.sender);
+        if (!urlVal) {
+          return sock.sendMessage(from, { text: `⚠️ Please provide a URL! Example: .${command} https://...` }, { quoted: m });
         }
 
-        await sock.sendMessage(from, { text: `⏳ *Processing your media download request...* 📥\nPerforming high-speed stream extraction from video servers...` }, { quoted: m });
+        await sock.sendMessage(from, { text: `⏳ *Processing your media download request ...* 📥\nPerforming high-speed stream extraction from video servers...` }, { quoted: m });
         
         setTimeout(async () => {
           try {
             await sock.sendMessage(from, { 
               video: { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' },
-              caption: `✅ *Media Download Completed!* ⚡\nSource: ${urlVal || 'Search selection'}\n\nDownloaded successfully via DANSCOM High-Speed Downloader Pipeline!`
+              caption: `✅ *Media Download Completed!* ⚡\nSource: ${urlVal}\n\nDownloaded successfully via DANSCOM High-Speed Downloader Pipeline!`
             }, { quoted: m });
           } catch (e: any) {
             await sock.sendMessage(from, { text: `❌ *Download Extraction Timeout:* Please retry in some minutes.` }, { quoted: m });
@@ -351,7 +375,26 @@ export const processCommand = async (
 
       case 'neon':
       case 'tech':
-      case 'sand': {
+      case 'sand':
+      case 'logo':
+      case 'glitch':
+      case 'fire':
+      case 'matrix':
+      case 'graffiti':
+      case '3dtext':
+      case 'blackpink':
+      case 'shadow':
+      case 'light':
+      case 'devil':
+      case 'angel':
+      case 'naruto':
+      case 'pubg':
+      case 'birthday':
+      case 'galaxy':
+      case 'cartoon':
+      case 'pixel':
+      case 'sketch':
+      case 'wanted': {
         const styledText = args.join(' ') || 'Danscom';
         await sock.sendMessage(from, {
           image: { url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&q=80' },
@@ -361,6 +404,14 @@ export const processCommand = async (
       }
 
       case 'joke': {
+        try {
+          const aiJoke = await geminiAssistant("Generate a clean, fresh, punchy, hilarious joke. Do NOT repeat standard C#/programming glasses jokes. Keep it to 1-3 lines max. Feel free to use emojis.");
+          if (aiJoke) {
+            await sock.sendMessage(from, { text: `😂 *DANSCOM DYNAMIC LAUGHS:* 😂\n\n"${aiJoke}"` }, { quoted: m });
+            break;
+          }
+        } catch (e) {}
+
         const jokes = [
           "Why do programmers wear glasses? Because they can't C#! 😂",
           "There are 10 types of people in this world: those who understand binary, and those who don't. 🤖",
@@ -373,6 +424,14 @@ export const processCommand = async (
       }
 
       case 'dare': {
+        try {
+          const aiDare = await geminiAssistant("Generate a funny, clean, creative Dare. Keep it engaging, fun, safe, suitable for a WhatsApp group game. Keep it short (1-2 sentences). Use emojis.");
+          if (aiDare) {
+            await sock.sendMessage(from, { text: `🔥 *DANSCOM DYNAMIC DARE:* 🔥\n\n"${aiDare}"` }, { quoted: m });
+            break;
+          }
+        } catch (e) {}
+
         const dares = [
           "Text your crush 'I know what you did last Sunday' and block them for 5 minutes! 😈",
           "Send your boss or parent 'I am deeply in love with a WhatsApp AI bot'. 🤪",
@@ -715,97 +774,160 @@ _Tune in or type *.live* to check updates!_`;
         break;
       }
 
-      case 'video':
-      case 'ytmp4':
-      case 'fb':
-      case 'ig':
-      case 'tiktok':
-        const url = args[0];
-        if (!url) return sock.sendMessage(from, { text: 'Please provide a URL!' }, { quoted: m });
-        
-        // Check payment first
-        if (!(await isUserPaid(context.sender))) {
-          return sendPaymentTrigger(sock, m, from, context.sender);
-        }
-
-        await sock.sendMessage(from, { text: '⏳ *Processing your media download request...* 📥\nPerforming high-speed stream extraction from provider servers...' }, { quoted: m });
-        
-        // Send a high-quality demo media file
-        setTimeout(async () => {
-          try {
-            await sock.sendMessage(from, { 
-              video: { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' },
-              caption: `✅ *Media Download Completed!* ⚡\nSource: ${url}\n\nDownloaded successfully via DANSCOM High-Speed Downloader Pipeline!`
-            }, { quoted: m });
-          } catch (e: any) {
-            await sock.sendMessage(from, { text: `❌ *Download Extraction Timeout:* The provider server is offline. Please retry in some minutes.` }, { quoted: m });
-          }
-        }, 2000);
-        break;
-
       case 'image':
+      case 'imagine':
+      case 'imageai':
+      case 'photoai':
+      case 'animeai':
+      case 'logoai': {
         const promptImg = args.join(' ');
-        if (!promptImg) return sock.sendMessage(from, { text: 'Please provide an image description!' }, { quoted: m });
+        if (!promptImg) return sock.sendMessage(from, { text: '⚠️ Please provide an image description!' }, { quoted: m });
         
-        // Check payment first
-        if (!(await isUserPaid(context.sender))) {
-          return sendPaymentTrigger(sock, m, from, context.sender);
-        }
-
-        await sock.sendMessage(from, { text: '🎨 *Generating your custom intelligence image...* 🖌️' }, { quoted: m });
+        await sock.sendMessage(from, { text: `🎨 *DANSCOM Image Engine (${command.toUpperCase()}) is rendering...* 🖌️` }, { quoted: m });
         
         setTimeout(async () => {
           try {
             await sock.sendMessage(from, {
               image: { url: `https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=800&q=80` },
-              caption: `🎨 *DANSCOM Image Engine V2* 🎨\nPrompt: "${promptImg}"\n\nImage rendered successfully automatically!`
+              caption: `🎨 *DANSCOM Space-Age Rendering Engine* 🎨\nStyle: *${command}*\nPrompt: "${promptImg}"\n\nImage successfully simulated and delivered! ✨`
             }, { quoted: m });
           } catch (e: any) {
              await sock.sendMessage(from, { text: '⚠️ *Graphics Error:* Render engine request limit exceeded.' }, { quoted: m });
           }
         }, 2000);
         break;
+      }
 
       case 'ai':
       case 'gpt':
+      case 'bard':
+      case 'gemini':
+      case 'claude':
+      case 'copilot':
+      case 'blackbox':
+      case 'videoai':
+      case 'musicai':
+      case 'voiceai':
+      case 'lyricsai':
+      case 'codeai':
+      case 'essayai':
+      case 'translateai': {
         const prompt = args.join(' ');
-        if (!prompt) return sock.sendMessage(from, { text: 'Please provide a prompt!' }, { quoted: m });
-        const aiResponse = await geminiAssistant(prompt);
-        await sock.sendMessage(from, { text: aiResponse || 'AI Error' }, { quoted: m });
+        if (!prompt) return sock.sendMessage(from, { text: `⚠️ Please provide a prompt! Example: .${command} explain quantum theory` }, { quoted: m });
+        
+        let systemInstruction = "You are a helpful WhatsApp assistant bot. Be concise and friendly.";
+        if (command === 'claude') {
+          systemInstruction = "You are Claude, an advanced AI developed by Anthropic. Answer concisely and professionally.";
+        } else if (command === 'gpt') {
+          systemInstruction = "You are ChatGPT, an expert AI assistant developed by OpenAI. Be highly informative yet brief.";
+        } else if (command === 'copilot' || command === 'codeai') {
+          systemInstruction = "You are an elite coding assistant. Provide clean, well-explained modular code snippets.";
+        } else if (command === 'videoai') {
+          systemInstruction = "You are an AI Video Director. Output a 1-paragraph highly cinematic, detailed scene prompt and storyboard description based on the prompt.";
+        } else if (command === 'musicai') {
+          systemInstruction = "You are an AI Music Composer. Output a detailed melody breakdown, chords, instrumentation, and style prompt description based on the user's prompt.";
+        } else if (command === 'voiceai') {
+          systemInstruction = "You are an AI Voice Actor. Write a highly dramatic, expressive speech or narration transcript formatted with voice direction notes (e.g. [whispers], [excitedly]).";
+        } else if (command === 'lyricsai') {
+          systemInstruction = "You are an expert Songwriter. Generate beautiful, poetic, rhyming lyrics (verse/chorus format) based on the theme prompt.";
+        } else if (command === 'essayai') {
+          systemInstruction = "You are an Academic Essay Writer. Formulate a dense, well-structured briefing, short essay, or abstract about the prompt.";
+        } else if (command === 'translateai') {
+          systemInstruction = "You are a hyper-accurate Translator. Translate the prompt to the requested target language or auto-translate English/Swahili text cleanly.";
+        }
+
+        await sock.sendMessage(from, { text: `🤖 *DANSCOM AI Engine (${command.toUpperCase()}) is formulating response...*` }, { quoted: m });
+        const aiResponse = await geminiAssistant(prompt, systemInstruction);
+        await sock.sendMessage(from, { text: aiResponse || '❌ AI Model servers are currently busy. Please retry.' }, { quoted: m });
         break;
+      }
 
       case 'premium':
         await sock.sendMessage(from, { text: '🌟 *DANSCOM Premium Features:* 🌟\n- Unrestricted AI assistance (.ai/.gpt)\n- Automated view status & likes\n- Active image generation (.image)\n- Cybernetic video downloads (.video / .tiktok / .ig)\n\nUnrestricted access represents KES 5.00 weekly. Type *.pay* or click direct checkout link.' }, { quoted: m });
         break;
 
-      case 'pay':
+      case 'pay': {
         const phone = context.sender.split('@')[0].split(':')[0];
+        let targetPhone = phone;
+        
+        // Use manually provided phone number if entered, e.g. .pay 0712345678
+        if (args[0]) {
+          const cleanArg = args[0].replace(/[^0-9]/g, '');
+          if (cleanArg.length >= 9) {
+            targetPhone = cleanArg;
+          }
+        }
+        
         try {
+          const payheroConfig = getPayheroConfig();
+          const appUrl = process.env.APP_URL || (process.env.NODE_ENV === 'production' 
+            ? 'https://ais-pre-lo7lp5bzig74auqtidjmrp-359576585250.europe-west1.run.app'
+            : 'https://ais-dev-lo7lp5bzig74auqtidjmrp-359576585250.europe-west1.run.app');
+
           const checkDetails = await initiateIntasendPayment({
             amount: 5,
             email: `${phone}@danscom.com`,
-            phoneNumber: phone,
-            sessionId: 'default_bot',
+            phoneNumber: targetPhone,
+            sessionId: context.sender, // Pass their specific sender JID to activate this user JID
             terminalId: 'main_terminal',
             type: 'weekly',
-            hostUrl: 'https://ais-dev-lo7lp5bzig74auqtidjmrp-359576585250.europe-west1.run.app'
+            hostUrl: appUrl
           });
           
+          const isSandbox = payheroConfig.isSandbox;
+          let paymentInstructions = '';
+          
+          if (isSandbox) {
+            paymentInstructions = `🧪 *Sandbox Environment Active:*
+We have automatically generated a trial payment of *5 KES* for phone *+${targetPhone}* (Reference: \`${checkDetails.invoiceId}\`).
+
+To simulate payment approval directly on WhatsApp without leaving the app:
+👉 *Simply type:* *.checksub*`;
+          } else {
+            paymentInstructions = `📲 *M-Pesa STK Push Sent!*
+An M-Pesa SIM ToolKit popup has been triggered directly on the phone *+${targetPhone}*.
+
+1. Check your phone screen for the prompt asking for your PIN.
+2. Enter your M-Pesa PIN and press OK to pay *5 KES*.
+3. Once done, wait 5-10 seconds and type *.checksub* to instantly activate premium features!`;
+          }
+
           await sock.sendMessage(from, { 
-            text: `💳 *DANSCOM SECURE INTASEND LINK* 💳\n\nWe have automatically generated a personalized M-Pesa / Card checkout link for you:\n\n🔗 *Pay Link:* ${checkDetails.checkoutUrl}\n\nAmount: *5 KES*\nFrequency: *Weekly*\n\n_Once you make the payment, type *.checksub* to instantly activate your automated bot functions!_`
+            text: `💳 *DANSCOM DIRECT WHATSAPP PAY* 💳\n\n${paymentInstructions}\n\n🔗 *Secure Web Fallback Link:* ${checkDetails.checkoutUrl}\n\n_Keep WhatsApp open to complete verification!_`
           }, { quoted: m });
         } catch (e: any) {
-          await sock.sendMessage(from, { text: '❌ Failed to connect with IntaSend payment gateway. Please retry later.' }, { quoted: m });
+          await sock.sendMessage(from, { text: '❌ Failed to connect with M-Pesa payment gateway. Please retry later.' }, { quoted: m });
         }
         break;
+      }
 
       case 'checksub':
         try {
           const paid = await isUserPaid(context.sender);
           if (paid) {
             await sock.sendMessage(from, { text: `✅ *DANSCOM Subscription Active!* 🎉\nYou have unrestricted access to all media extraction downloaders, AI image generators, and live integrations.` }, { quoted: m });
+            break;
+          }
+
+          // Not active yet - let's find if they have a pending transaction to verify
+          await sock.sendMessage(from, { text: `⏳ *Checking M-Pesa payment status directly...*` }, { quoted: m });
+          
+          const pending = await getLatestPendingPayment(context.sender);
+          if (pending) {
+            const verificationResult = await verifyIntasendPayment(pending.id);
+            if (verificationResult.success) {
+              await sock.sendMessage(from, { 
+                text: `✅ *Payment Verified Successfully!* 🎉\n\nThank you for activating your DANSCOM weekly subscription!\nEnjoy premium AI, unrestricted media downloads, and active tools.\n\nType *.menu* to get started.` 
+              }, { quoted: m });
+            } else {
+              await sock.sendMessage(from, { 
+                text: `⏳ *Payment Still Pending:* We are waiting for M-Pesa notification for reference \`${pending.id}\`.\n\nIf you have already entered your PIN on your phone, wait a few seconds and try *.checksub* again.\n\nType *.pay* to re-initiate the prompt.` 
+              }, { quoted: m });
+            }
           } else {
-            await sock.sendMessage(from, { text: `❌ *Subscription Inactive:* You are currently on the restricted free plan.\n\nType *.pay* to instantly generate an M-Pesa payment link!` }, { quoted: m });
+            await sock.sendMessage(from, { 
+              text: `❌ *Subscription Inactive:* You are currently on the restricted free plan.\n\n👉 *To pay directly:* Type *.pay* or *.pay [M-Pesa number]* to request a push prompt directly to your phone!` 
+            }, { quoted: m });
           }
         } catch (err) {
           await sock.sendMessage(from, { text: 'Database error while reading subscription status. Restricted access active.' }, { quoted: m });

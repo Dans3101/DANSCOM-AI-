@@ -32,6 +32,42 @@ import {
   Check
 } from 'lucide-react';
 
+// --- SECURE OBSCURED PAIRING TOKEN ENCODER/DECODER ---
+function encodePairingToken(terminalId: string, sessionId: string): string {
+  const payload = {
+    t: terminalId,
+    s: sessionId,
+    v: "danscom-v1",
+    ts: Date.now()
+  };
+  const json = JSON.stringify(payload);
+  try {
+    return btoa(encodeURIComponent(json).split('').map(c => String.fromCharCode(c.charCodeAt(0) + 3)).join(''));
+  } catch (e) {
+    return btoa(json);
+  }
+}
+
+function decodePairingToken(token: string): { terminalId: string; sessionId: string } | null {
+  try {
+    const raw = atob(token);
+    const jsonStr = decodeURIComponent(raw.split('').map(c => String.fromCharCode(c.charCodeAt(0) - 3)).join(''));
+    const payload = JSON.parse(jsonStr);
+    if (payload && payload.t && payload.s && payload.v === "danscom-v1") {
+      return { terminalId: payload.t, sessionId: payload.s };
+    }
+  } catch (e) {
+    try {
+      const raw = atob(token);
+      const payload = JSON.parse(raw);
+      if (payload && payload.t && payload.s) {
+        return { terminalId: payload.t, sessionId: payload.s };
+      }
+    } catch (err) {}
+  }
+  return null;
+}
+
 export default function App() {
   const [status, setStatus] = useState('Checking...');
   const [connection, setConnection] = useState<{qr: string | null, pairingCode: string | null, connected: boolean, pairingNumber: string | null, user?: {id: string, name: string}}>({
@@ -75,6 +111,15 @@ export default function App() {
   const [terminalActiveSession, setTerminalActiveSession] = useState<any>(null);
   const [terminalVerificationStatus, setTerminalVerificationStatus] = useState<string | null>(null);
   const [isSimulator, setIsSimulator] = useState(false);
+  const [redirectCountdown, setRedirectCountdown] = useState<number | null>(null);
+  const [isCookieBlocked, setIsCookieBlocked] = useState(false);
+
+  // Retry STK Push & verification tracking details
+  const [verifiedTransaction, setVerifiedTransaction] = useState<any>(null);
+  const [retryPhone, setRetryPhone] = useState('');
+  const [isSubmittingRetry, setIsSubmittingRetry] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const [retrySuccess, setRetrySuccess] = useState<boolean>(false);
 
   // Standalone Pairing link only state (requested by user)
   const [isPairingViewOnly, setIsPairingViewOnly] = useState(false);
@@ -89,9 +134,39 @@ export default function App() {
   const [isDetailsSubmitted, setIsDetailsSubmitted] = useState(false);
 
   useEffect(() => {
+    const safeFetch = async (url: string, options?: RequestInit) => {
+        try {
+            const res = await fetch(url, options);
+            const textContent = await res.text();
+            
+            // Check if returned data is HTML (contains doctype or html tags)
+            if (textContent.trim().toLowerCase().startsWith('<!doctype') || textContent.includes('<html') || textContent.includes('<head>') || textContent.includes('<body')) {
+                setIsCookieBlocked(true);
+                throw new Error(`Endpoint ${url} returned HTML content (cookie restriction or block screen)`);
+            }
+
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+            
+            try {
+                return JSON.parse(textContent);
+            } catch (jsonErr: any) {
+                console.warn(`JSON parsing failed on ${url}:`, jsonErr.message);
+                throw jsonErr;
+            }
+        } catch (err) {
+            const isHtmlRedirect = err instanceof Error && err.message.includes('returned HTML content');
+            if (isHtmlRedirect) {
+                setIsCookieBlocked(true);
+            } else {
+                console.warn(`Fetch failed for ${url}:`, err instanceof Error ? err.message : err);
+            }
+            throw err;
+        }
+    };
+
     // 1. Detect if terminal parameters exist
     const urlParams = new URLSearchParams(window.location.search);
-    const termParam = urlParams.get('terminal');
+    let termParam = urlParams.get('terminal');
     const invoiceParam = urlParams.get('invoice_id');
     const simParam = urlParams.get('is_simulator');
 
@@ -99,19 +174,26 @@ export default function App() {
       setIsSimulator(true);
     }
 
-    const pairingViewParam = urlParams.get('pairing_view');
-    const sessionParam = urlParams.get('session');
+    let pairingViewParam = urlParams.get('pairing_view');
+    let sessionParam = urlParams.get('session');
+
+    // Decode secure/obscured pairing token if present
+    const tokenParam = urlParams.get('p');
+    if (tokenParam) {
+      const decoded = decodePairingToken(tokenParam);
+      if (decoded) {
+        termParam = decoded.terminalId;
+        sessionParam = decoded.sessionId;
+        pairingViewParam = 'true';
+      }
+    }
 
     if (pairingViewParam === 'true' && sessionParam) {
       setIsPairingViewOnly(true);
       setPairingViewSessionId(sessionParam);
       
       // Fetch session metadata if exists
-      fetch(`/api/sessions/${sessionParam}/metadata`)
-        .then(res => {
-          if (res.ok) return res.json();
-          throw new Error('No metadata');
-        })
+      safeFetch(`/api/sessions/${sessionParam}/metadata`)
         .then(data => {
           if (data && data.clientName) {
             setClientNameInput(data.clientName);
@@ -120,7 +202,7 @@ export default function App() {
             setIsDetailsSubmitted(true);
             
             // Automatically bootstrap & activate stream in the background
-            fetch('/api/sessions', {
+            safeFetch('/api/sessions', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ sessionId: sessionParam, terminalId: termParam || 'main_terminal' })
@@ -132,8 +214,7 @@ export default function App() {
 
     if (termParam) {
       setActiveTerminalId(termParam);
-      fetch(`/api/terminals/${termParam}`)
-        .then(res => res.json())
+      safeFetch(`/api/terminals/${termParam}`)
         .then(data => {
           if (!data.error) {
             setTerminalData(data);
@@ -142,8 +223,7 @@ export default function App() {
         .catch(err => console.error('Error fetching single terminal details:', err));
     } else {
       // 2. Load owner terminals database
-      fetch('/api/terminals')
-        .then(res => res.json())
+      safeFetch('/api/terminals')
         .then(data => {
           if (Array.isArray(data)) setTerminals(data);
         })
@@ -153,13 +233,15 @@ export default function App() {
     // 3. Handle automated IntaSend checkout redirection loop
     if (invoiceParam) {
       setTerminalVerificationStatus('verifying');
-      fetch('/api/payments/verify', {
+      safeFetch('/api/payments/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoiceId: invoiceParam, terminalId: termParam })
       })
-      .then(res => res.json())
       .then(resData => {
+        if (resData.transaction) {
+          setVerifiedTransaction(resData.transaction);
+        }
         if (resData.success) {
           setTerminalVerificationStatus('success');
           // Populate from details to ease quick deployment
@@ -176,18 +258,7 @@ export default function App() {
       .catch(() => setTerminalVerificationStatus('failed'));
     }
 
-    const safeFetch = async (url: string) => {
-        try {
-            const res = await fetch(url);
-            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-            return await res.json();
-        } catch (err) {
-            console.error(`Fetch failed for ${url}:`, err);
-            throw err;
-        }
-    };
-
-    const checkStatus = () => {
+     const checkStatus = () => {
         safeFetch('/api/connection')
           .then(data => {
             setConnection(data);
@@ -249,6 +320,92 @@ export default function App() {
     const interval = setInterval(checkStatus, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (redirectCountdown === null) return;
+    if (redirectCountdown <= 0) {
+      window.location.href = "https://wa.me/";
+      return;
+    }
+    const timer = setTimeout(() => {
+      setRedirectCountdown(prev => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [redirectCountdown]);
+
+  useEffect(() => {
+    // Only trigger auto-redirect on successful verification
+    const hasInvoice = new URLSearchParams(window.location.search).has('invoice_id');
+    if (hasInvoice && terminalVerificationStatus === 'success') {
+      setRedirectCountdown(5);
+    } else {
+      setRedirectCountdown(null);
+    }
+  }, [terminalVerificationStatus]);
+
+  useEffect(() => {
+    if (verifiedTransaction?.phoneNumber) {
+      setRetryPhone(verifiedTransaction.phoneNumber);
+    } else {
+      const phoneParam = new URLSearchParams(window.location.search).get('phone');
+      if (phoneParam) {
+        setRetryPhone(phoneParam);
+      }
+    }
+  }, [verifiedTransaction]);
+
+  const handleInitiateSTKRetry = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!retryPhone || retryPhone.trim().length < 9) {
+      setRetryError('⚠️ Please enter a valid M-Pesa phone number.');
+      return;
+    }
+
+    setIsSubmittingRetry(true);
+    setRetryError(null);
+    setRetrySuccess(false);
+
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const amountVal = urlParams.get('amount') || verifiedTransaction?.amount || '5';
+      const termParam = urlParams.get('terminal') || verifiedTransaction?.terminalId || 'main_terminal';
+      const sessionParam = verifiedTransaction?.sessionId || 'default_bot';
+      const typeParam = verifiedTransaction?.type || 'weekly';
+
+      const response = await fetch('/api/payments/create-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: parseFloat(amountVal),
+          phoneNumber: retryPhone,
+          sessionId: sessionParam,
+          terminalId: termParam,
+          type: typeParam
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok || resData.error) {
+        throw new Error(resData.error || resData.message || 'Failed to initiate STK Push.');
+      }
+
+      setRetrySuccess(true);
+      
+      // Auto transition/refresh to check the new transaction status in 3s!
+      setTimeout(() => {
+        const queryTerm = termParam ? `&terminal=${termParam}` : '';
+        const amtParam = amountVal ? `&amount=${amountVal}` : '';
+        const phParam = retryPhone ? `&phone=${retryPhone}` : '';
+        window.location.href = `/?invoice_id=${resData.invoiceId}${queryTerm}${amtParam}${phParam}`;
+      }, 3000);
+
+    } catch (err: any) {
+      console.error('STK push retry failed:', err);
+      setRetryError(err.message || 'Error occurred while triggering STK Push.');
+    } finally {
+      setIsSubmittingRetry(false);
+    }
+  };
 
   const handleRequestPairingCode = async () => {
     if (!phoneNumber) return;
@@ -634,15 +791,6 @@ export default function App() {
         {/* Custom Isolated connection bar */}
         <nav className="h-20 bg-white border-b border-slate-200/60 flex items-center justify-between px-6 md:px-12 select-none">
           <div className="flex items-center gap-3">
-            <button 
-              onClick={() => {
-                // Return to terminal or admin
-                setIsPairingViewOnly(false);
-              }}
-              className="p-2 hover:bg-slate-100 rounded-xl border border-slate-200/80 text-slate-600 transition-all flex items-center gap-1.5 text-xs font-bold mr-2 uppercase"
-            >
-              ← Go Back
-            </button>
             <div className="w-10 h-10 bg-emerald-600 text-white rounded-xl flex items-center justify-center font-black">
               🔋
             </div>
@@ -865,6 +1013,181 @@ export default function App() {
     );
   }
 
+  // --- RENDERING SECURE CHECKOUT VERIFICATION OUTCOME PAGE for clients ---
+  const invoiceParam = new URLSearchParams(window.location.search).get('invoice_id');
+  if (invoiceParam && !isSimulator) {
+    const amount = new URLSearchParams(window.location.search).get('amount') || '5';
+    
+    return (
+      <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center justify-center p-6 font-sans">
+        <div className="w-full max-w-md bg-slate-950 border border-slate-800 rounded-[2.5rem] p-8 space-y-8 text-center shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-emerald-500 to-indigo-500" />
+          
+          <div className="flex items-center justify-center gap-2">
+            <span className="p-1 px-2.5 bg-indigo-500/10 rounded-full text-[10px] font-black tracking-widest uppercase text-indigo-400 border border-indigo-500/20">
+              🔒 DANSCOM PAY PORTAL
+            </span>
+          </div>
+
+          {terminalVerificationStatus === 'verifying' && (
+            <div className="space-y-6 py-6 animate-fade-in">
+              <RefreshCw className="w-12 h-12 text-indigo-500 animate-spin mx-auto" />
+              <div className="space-y-2">
+                <h3 className="text-lg font-black uppercase tracking-tight text-white">Verifying Payment...</h3>
+                <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
+                  We are currently verifying transaction receipt. This takes a few seconds. Please do not close or refresh this page.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {terminalVerificationStatus === 'success' && (
+            <div className="space-y-6 py-4 animate-fade-in">
+              <div className="w-16 h-16 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center justify-center mx-auto border border-emerald-500/20 animate-bounce">
+                <Check className="w-8 h-8 font-black" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-xl font-black uppercase tracking-tight text-emerald-400">Subscription Authorized!</h3>
+                <p className="text-sm text-slate-300 max-w-xs mx-auto leading-relaxed">
+                  Your payment of <strong className="text-white font-black">KES {amount}.00</strong> has been successfully verified!
+                </p>
+                <div className="p-3 bg-slate-900/50 border border-slate-800 rounded-2xl max-w-xs mx-auto text-[11px] font-mono text-slate-400">
+                  REF: {invoiceParam}
+                </div>
+                <p className="text-xs text-emerald-500 font-bold max-w-xs mx-auto pt-2">
+                  🎉 Your standard bot commands & processes are authorized!
+                </p>
+              </div>
+
+              {redirectCountdown !== null && (
+                <p className="text-[10px] text-slate-500 font-mono tracking-wide">
+                  ⏰ Automatically returning you back to WhatsApp in <span className="text-indigo-400 font-black">{redirectCountdown}s</span>...
+                </p>
+              )}
+
+              <div className="space-y-3 pt-4">
+                <button 
+                  onClick={() => { window.location.href = "https://wa.me/"; }}
+                  className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.99] text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all shadow-lg"
+                >
+                  💬 Return to WhatsApp Now
+                </button>
+              </div>
+            </div>
+          )}
+
+          {terminalVerificationStatus === 'failed' && (
+            <div className="space-y-6 py-2 text-left animate-fade-in">
+              <div className="text-center space-y-4">
+                <div className="w-16 h-16 bg-amber-500/10 text-amber-505 rounded-full flex items-center justify-center mx-auto border border-amber-500/20">
+                  <Clock className="w-8 h-8 font-black animate-pulse text-amber-500" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-xl font-black uppercase tracking-tight text-amber-550 text-amber-500">Verification Pending</h3>
+                  <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed text-center">
+                    We could not find an active completed transaction for Ref <strong className="font-mono text-slate-300">{invoiceParam}</strong> yet.
+                  </p>
+                </div>
+              </div>
+
+              {/* Retry form section */}
+              <div className="bg-slate-900 border border-slate-800/80 rounded-3xl p-6 space-y-4 shadow-inner">
+                <div className="space-y-1">
+                  <h4 className="text-xs font-black text-white uppercase tracking-tight flex items-center gap-2">
+                    <span>⚡ DIRECT M-PESA STK PUSH RETRY</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400 leading-normal">
+                    Enter your Safaricom M-Pesa phone number below to trigger a direct STK PIN prompt to your mobile screen instantly.
+                  </p>
+                </div>
+
+                <form onSubmit={handleInitiateSTKRetry} className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Phone Number (Safaricom M-Pesa)</label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-3.5 text-slate-500 font-mono text-xs font-semibold select-none">📞</span>
+                      <input 
+                        type="text" 
+                        value={retryPhone} 
+                        onChange={(e) => setRetryPhone(e.target.value)}
+                        placeholder="e.g., 254712345678" 
+                        className="w-full pl-10 pr-4 py-3.5 bg-slate-950 border border-slate-800 rounded-2xl text-xs font-semibold text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-all font-mono"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center p-3 bg-slate-950/60 border border-slate-900 rounded-2xl text-xs">
+                    <span className="text-slate-500 uppercase font-bold tracking-wide text-[10px]">Retry Amount:</span>
+                    <span className="font-black text-white">KES {amount}.00</span>
+                  </div>
+
+                  {retryError && (
+                    <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-450 text-[11px] leading-relaxed font-semibold">
+                      {retryError}
+                    </div>
+                  )}
+
+                  {retrySuccess && (
+                    <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-emerald-400 text-[11px] leading-relaxed font-semibold text-center">
+                      🎉 STK Push Request sent successfully! M-Pesa PIN prompt is routing to your handset. Please enter your PIN to complete the transaction, then we will automatically verify.
+                    </div>
+                  )}
+
+                  <button 
+                    type="submit" 
+                    disabled={isSubmittingRetry || retrySuccess}
+                    className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
+                  >
+                    {isSubmittingRetry ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin text-indigo-200" />
+                        Triggering Prompt...
+                      </>
+                    ) : (
+                      "🚀 Send STK Push Retry"
+                    )}
+                  </button>
+                </form>
+              </div>
+
+              {/* Multi-action verification options */}
+              <div className="space-y-2.5 pt-2 text-center">
+                <button 
+                  onClick={() => window.location.reload()}
+                  className="w-full py-3.5 bg-slate-850 hover:bg-slate-800 active:scale-[0.99] border border-slate-800 text-white text-xs font-bold uppercase tracking-widest rounded-2xl transition-all"
+                >
+                  🔄 Manually Re-Verify Receipt
+                </button>
+                
+                <button 
+                  onClick={() => { window.location.href = "https://wa.me/"; }}
+                  className="w-full py-3 text-slate-500 hover:text-slate-400 text-xs font-bold uppercase tracking-widest transition-all"
+                >
+                  💬 Go Back to WhatsApp
+                </button>
+
+                <p className="text-[10px] text-slate-500 text-center leading-normal pt-2">
+                  Once payment is accepted, you can type <code className="text-indigo-400 font-bold">.checksub</code> directly inside WhatsApp to instantly initialize bot triggers!
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="pt-6 border-t border-slate-900/60 flex items-center justify-between text-[9px] text-slate-650 font-bold uppercase">
+            <span>REFERENCE: {invoiceParam.slice(0, 15)}</span>
+            <a 
+              href="/"
+              className="text-slate-500 hover:text-indigo-400 underline transition-all font-mono text-[9px]"
+            >
+              🔧 Admin Panel
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // --- RENDERING PAY HERO GATEWAY SIMULATOR PAGE ---
   if (isSimulator) {
     const params = new URLSearchParams(window.location.search);
@@ -915,12 +1238,11 @@ export default function App() {
             </button>
             <button 
               onClick={() => {
-                const termParam = terminalId ? `?terminal=${terminalId}` : '';
-                window.location.href = `/${termParam}`;
+                window.location.href = "https://wa.me/";
               }}
               className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs font-bold uppercase tracking-widest rounded-2xl transition-all"
             >
-              Decline Payment
+              Cancel Payment / Return to WhatsApp
             </button>
           </div>
 
@@ -1299,7 +1621,8 @@ export default function App() {
                 <div className="space-y-4">
                   {activeTerminalSessions.map(s => {
                     const targetTermId = s.terminalId || activeTerminalId || 'main_terminal';
-                    const directPairingUrl = `${window.location.origin}?terminal=${targetTermId}&pairing_view=true&session=${s.sessionId}`;
+                    const token = encodePairingToken(targetTermId, s.sessionId);
+                    const directPairingUrl = `${window.location.origin}?p=${token}`;
                     return (
                       <div key={s.sessionId} className="p-5 bg-slate-50 border border-slate-200/50 rounded-[1.5rem] flex flex-col gap-4 shadow-sm hover:border-slate-300 transition-all">
                         <div className="flex justify-between items-start">
@@ -1585,6 +1908,41 @@ export default function App() {
 
         {/* Main Content Area */}
         <main className="flex-1 p-8 overflow-y-auto flex flex-col gap-8">
+          {isCookieBlocked && (
+            <div className="bg-amber-50 border border-amber-200 text-slate-950 p-6 rounded-[2rem] flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm animate-fade-in select-none">
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-amber-100 rounded-2xl text-amber-600">
+                  <Shield className="w-6 h-6 animate-pulse" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-amber-900 uppercase tracking-wider">Browser Sandbox Cookie Restriction</h4>
+                  <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                    Your web browser is blocking session cookies within the preview iframe. Launch the applet in a separate tab to load all databases and live controls properly.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2.5 flex-shrink-0">
+                <a 
+                  href={window.location.href} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="px-5 py-3 bg-slate-900 text-white text-[11px] uppercase tracking-wider font-black rounded-2xl shadow transition-all hover:bg-slate-800"
+                >
+                  🔗 Open In New Tab
+                </a>
+                <button 
+                  onClick={() => {
+                    setIsCookieBlocked(false);
+                    window.location.reload();
+                  }}
+                  className="px-5 py-3 bg-white border border-slate-200 text-slate-600 text-[11px] uppercase tracking-wider font-black rounded-2xl transition-all hover:bg-slate-50 cursor-pointer"
+                >
+                  🔄 Retry
+                </button>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'dashboard' ? (
             <>
               {/* DATABASE STORAGE STATE WARNING */}
@@ -2028,7 +2386,8 @@ export default function App() {
                         <button 
                           onClick={() => {
                             const termId = sess.terminalId || 'main_terminal';
-                            const directPairingUrl = `${window.location.origin}?terminal=${termId}&pairing_view=true&session=${sess.sessionId}`;
+                            const token = encodePairingToken(termId, sess.sessionId);
+                            const directPairingUrl = `${window.location.origin}?p=${token}`;
                             navigator.clipboard.writeText(directPairingUrl);
                             alert('Copied secure standalone pairing link for this session!');
                           }}
