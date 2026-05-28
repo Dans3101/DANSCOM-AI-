@@ -460,6 +460,15 @@ export const startWhatsAppSession = async (sessionId: string) => {
                     const userJid = currentSock.user.id.split(':')[0] + '@s.whatsapp.net';
                     const userPhone = currentSock.user.id.split(':')[0].split(':')[0];
                     try {
+                        const { getSessionMetadata, saveSessionMetadata } = await import('./terminalService.js');
+                        let mMeta = await getSessionMetadata(sessionId);
+                        if (!mMeta) {
+                            const clientName = currentSock.user.name || 'DANSCOM Bot';
+                            const code = Math.floor(100000 + Math.random() * 900000).toString();
+                            mMeta = await saveSessionMetadata(sessionId, clientName, userPhone, false, code);
+                        }
+                        const controlCode = mMeta?.controlCode || '123456';
+
                         let welcomeText = `🎉 *Congratulations!*\n\nYour *DANSCOM WhatsApp Bot* (Session: \`${sessionId}\`) has been successfully connected and is now fully active!\n\n🤖 *Bot Profile:* ${currentSock.user.name || 'DANSCOM Bot'}\n📱 *Number:* ${userPhone}\n\nEnjoy using your automated features! Keep this chat open if you want to test commands directly! Type /menu or .menu.`;
                         
                         // Check terminal information

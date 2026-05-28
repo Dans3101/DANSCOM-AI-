@@ -12,6 +12,7 @@ import {
   restartWhatsApp
 } from './services/whatsapp.js';
 import { analyticsDb, usersDb, getIsFirestoreUsable } from './database/firebase.js';
+import { getCommandCount } from './utils/commandTracker.js';
 import { 
   getAllTerminals, 
   getTerminalById, 
@@ -125,16 +126,19 @@ const STATS_CACHE_TTL = 45000; // 45 seconds
 app.get('/api/stats', async (req, res) => {
   try {
       const now = Date.now();
+      const realTimeCount = await getCommandCount();
+
       if (cachedStats && (now - lastStatsFetch < STATS_CACHE_TTL)) {
           return res.json({ 
               ...cachedStats,
+              totalCommands: realTimeCount,
               uptime: Math.floor(process.uptime())
           });
       }
 
       if (!getIsFirestoreUsable() || !analyticsDb) {
           return res.json({ 
-              totalCommands: 0, 
+              totalCommands: realTimeCount, 
               activeUsers: 1, 
               uptime: Math.floor(process.uptime()), 
               latency: 45 
@@ -151,7 +155,7 @@ app.get('/api/stats', async (req, res) => {
           const usersCount = usersDb ? (await usersDb.count().get()).data().count : 1; 
 
           cachedStats = {
-              totalCommands: total,
+              totalCommands: Math.max(realTimeCount, total),
               activeUsers: usersCount,
               latency: Math.floor(Math.random() * 20) + 30 
           };
@@ -159,13 +163,14 @@ app.get('/api/stats', async (req, res) => {
 
           res.json({
               ...cachedStats,
+              totalCommands: realTimeCount,
               uptime: Math.floor(process.uptime())
           });
       } catch (dbErr: any) {
           console.warn('[Stats API] Firestore query failed (likely resource exhausted/quota limit):', dbErr.message);
           // Graceful fallback for quota-exhausted environments
           res.json({
-              totalCommands: 1240,
+              totalCommands: realTimeCount,
               activeUsers: 3,
               uptime: Math.floor(process.uptime()),
               latency: 42
@@ -211,7 +216,9 @@ app.get('/api/sessions', async (req, res) => {
         ...s,
         terminalId: term ? term.id : null,
         clientName: meta?.clientName || null,
-        clientPhone: meta?.clientPhone || null
+        clientPhone: meta?.clientPhone || null,
+        disabled: meta?.disabled || false,
+        controlCode: meta?.controlCode || null
       };
     }));
     
@@ -240,6 +247,29 @@ app.get('/api/sessions/:sessionId/metadata', async (req, res) => {
     const { getSessionMetadata } = await import('./services/terminalService.js');
     const meta = await getSessionMetadata(sessionId);
     res.json(meta || { clientName: '', clientPhone: '' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/sessions/:sessionId/toggle', async (req, res) => {
+  const { sessionId } = req.params;
+  const { disabled } = req.body;
+  if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+  try {
+    const { getSessionMetadata, saveSessionMetadata } = await import('./services/terminalService.js');
+    let meta = await getSessionMetadata(sessionId);
+    if (!meta) {
+      const rawSessions = getSessionsState();
+      const matched = rawSessions.find(s => s.sessionId === sessionId);
+      const name = matched?.user?.name || 'DANSCOM Bot';
+      const phone = matched?.user?.id ? matched.user.id.split(':')[0] : '';
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      meta = await saveSessionMetadata(sessionId, name, phone, !!disabled, code);
+    } else {
+      meta = await saveSessionMetadata(sessionId, meta.clientName, meta.clientPhone, !!disabled, meta.controlCode);
+    }
+    res.json({ success: true, ...meta });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

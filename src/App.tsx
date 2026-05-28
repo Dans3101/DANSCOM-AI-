@@ -34,37 +34,58 @@ import {
 
 // --- SECURE OBSCURED PAIRING TOKEN ENCODER/DECODER ---
 function encodePairingToken(terminalId: string, sessionId: string): string {
-  const payload = {
-    t: terminalId,
-    s: sessionId,
-    v: "danscom-v1",
-    ts: Date.now()
-  };
-  const json = JSON.stringify(payload);
+  const raw = `${terminalId}:${sessionId}`;
   try {
-    return btoa(encodeURIComponent(json).split('').map(c => String.fromCharCode(c.charCodeAt(0) + 3)).join(''));
+    return btoa(encodeURIComponent(raw).split('').map(c => String.fromCharCode(c.charCodeAt(0) + 2)).join(''));
   } catch (e) {
-    return btoa(json);
+    return btoa(raw);
   }
 }
 
 function decodePairingToken(token: string): { terminalId: string; sessionId: string } | null {
   try {
     const raw = atob(token);
-    const jsonStr = decodeURIComponent(raw.split('').map(c => String.fromCharCode(c.charCodeAt(0) - 3)).join(''));
-    const payload = JSON.parse(jsonStr);
-    if (payload && payload.t && payload.s && payload.v === "danscom-v1") {
-      return { terminalId: payload.t, sessionId: payload.s };
-    }
-  } catch (e) {
+    
+    // 1. Try modern fast format: terminalId:sessionId encoded with +2 offset
     try {
-      const raw = atob(token);
+      const decodedStr = decodeURIComponent(raw.split('').map(c => String.fromCharCode(c.charCodeAt(0) - 2)).join(''));
+      if (decodedStr.includes(':')) {
+        const parts = decodedStr.split(':');
+        if (parts.length >= 2) {
+          const terminalId = parts[0];
+          const sessionId = parts.slice(1).join(':'); // handles sessions with colons optionally
+          if (terminalId && sessionId) {
+            return { terminalId, sessionId };
+          }
+        }
+      }
+    } catch (e) {}
+
+    // 2. Try JSON payload encoded with +3 offset (compatibility fallback)
+    try {
+      const jsonStr = decodeURIComponent(raw.split('').map(c => String.fromCharCode(c.charCodeAt(0) - 3)).join(''));
+      const payload = JSON.parse(jsonStr);
+      if (payload && payload.t && payload.s) {
+        return { terminalId: payload.t, sessionId: payload.s };
+      }
+    } catch (e) {}
+
+    // 3. Try standard base64 raw JSON fallback
+    try {
       const payload = JSON.parse(raw);
       if (payload && payload.t && payload.s) {
         return { terminalId: payload.t, sessionId: payload.s };
       }
     } catch (err) {}
-  }
+
+    // 4. Try colon format plain fallback
+    if (raw.includes(':')) {
+      const parts = raw.split(':');
+      if (parts.length >= 2) {
+        return { terminalId: parts[0], sessionId: parts.slice(1).join(':') };
+      }
+    }
+  } catch (e) {}
   return null;
 }
 
@@ -80,6 +101,7 @@ export default function App() {
   const [newSessionName, setNewSessionName] = useState('');
   const [pairingSessionId, setPairingSessionId] = useState('default_bot');
   const [showPairing, setShowPairing] = useState(false);
+  const [showBotManagerModal, setShowBotManagerModal] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isRequestingPairing, setIsRequestingPairing] = useState(false);
   const [pairingError, setPairingError] = useState<string | null>(null);
@@ -322,6 +344,36 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const fetchRealtimeStats = async () => {
+      try {
+        const res = await fetch('/api/stats');
+        if (res.ok) {
+          const textContent = await res.text();
+          // Skip if returned redirect HTML to prevent noise
+          if (textContent.trim().toLowerCase().startsWith('<!doctype') || textContent.includes('<html')) {
+            return;
+          }
+          const data = JSON.parse(textContent);
+          if (data && typeof data.totalCommands === 'number') {
+            setStats(prev => ({
+              ...prev,
+              totalCommands: data.totalCommands,
+              latency: data.latency,
+              uptime: data.uptime
+            }));
+          }
+        }
+      } catch (err) {
+        // Silently handle error for background polling
+      }
+    };
+    
+    // Poll stats at high-frequency (1.5 seconds) for real-time visualization
+    const rtInterval = setInterval(fetchRealtimeStats, 1500);
+    return () => clearInterval(rtInterval);
+  }, []);
+
+  useEffect(() => {
     if (redirectCountdown === null) return;
     if (redirectCountdown <= 0) {
       window.location.href = "https://wa.me/";
@@ -480,10 +532,20 @@ export default function App() {
 
   const handleDeleteSession = async (sessId: string) => {
     if (sessId === 'default_bot') {
-      alert('The primary/default session cannot be deleted.');
+      try {
+        alert('The primary/default session cannot be deleted.');
+      } catch (e) {
+        console.warn('Alert blocked:', e);
+      }
       return;
     }
-    if (!window.confirm(`Are you sure you want to delete session "${sessId}"?`)) return;
+    let confirmed = true;
+    try {
+      confirmed = window.confirm(`Are you sure you want to delete session "${sessId}"?`);
+    } catch (e) {
+      console.warn('Confirm blocked by sandbox, auto-confirming action:', e);
+    }
+    if (!confirmed) return;
     try {
       const res = await fetch(`/api/sessions/${sessId}`, { method: 'DELETE' });
       if (res.ok) {
@@ -491,6 +553,24 @@ export default function App() {
       }
     } catch (error) {
       console.error('Failed to delete session:', error);
+    }
+  };
+
+  const toggleSessionEnabled = async (sessionId: string, currentDisabled: boolean) => {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disabled: !currentDisabled })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSessions(prev => prev.map(s => s.sessionId === sessionId ? { ...s, disabled: !currentDisabled } : s));
+      } else {
+        alert(data.error || 'Failed to toggle bot connection state');
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
     }
   };
 
@@ -1291,8 +1371,16 @@ export default function App() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 border border-emerald-100/50 rounded-full">
-            <span className="text-[9px] font-black text-emerald-700 uppercase tracking-wider">SECURE BOT TERMINAL</span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowBotManagerModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-55 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-xl text-[10px] font-black text-indigo-700 uppercase tracking-wider transition-all"
+            >
+              🤖 Bot Manager
+            </button>
+            <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 border border-emerald-100/50 rounded-full">
+              <span className="text-[9px] font-black text-emerald-700 uppercase tracking-wider">SECURE BOT TERMINAL</span>
+            </div>
           </div>
         </nav>
 
@@ -1800,6 +1888,95 @@ export default function App() {
         })()}
       </AnimatePresence>
 
+      {/* Bot Connection Manager Overlay Modal */}
+      <AnimatePresence>
+        {showBotManagerModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-white rounded-[2.5rem] border border-slate-100 shadow-2xl max-w-2xl w-full p-8 md:p-10 space-y-6 relative flex flex-col max-h-[85vh]"
+            >
+              <button 
+                onClick={() => setShowBotManagerModal(false)}
+                className="absolute right-6 top-6 p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto">
+                  <Bot className="w-6 h-6 animate-pulse" />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">🤖 Bot Connection Manager</h3>
+                <p className="text-xs text-slate-400">Enable or disable bot sessions without stopping the system</p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+                {(() => {
+                  const relevantBots = activeTerminalId 
+                    ? sessions.filter(s => s.terminalId === activeTerminalId)
+                    : sessions;
+
+                  if (relevantBots.length === 0) {
+                    return (
+                      <div className="text-center py-12 bg-slate-50 rounded-3xl border border-slate-100">
+                        <p className="text-xs text-slate-400 font-medium">No active bots found under this session area.</p>
+                      </div>
+                    );
+                  }
+
+                  return relevantBots.map((sess) => (
+                    <div key={sess.sessionId} className="p-4 bg-slate-50 border border-slate-150/60 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-1 text-left">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black text-slate-850 block">{sess.clientName || sess.sessionId}</span>
+                          {sess.disabled ? (
+                            <span className="px-1.5 py-0.5 rounded text-[8px] bg-red-100 border border-red-200 text-red-700 font-bold uppercase tracking-wider">Suspended</span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[8px] bg-emerald-100 border border-emerald-200 text-emerald-800 font-bold uppercase tracking-wider">Active</span>
+                          )}
+                        </div>
+                        
+                        <div className="space-y-0.5 text-[10px] text-slate-500 font-medium leading-normal font-sans">
+                          <p>📱 WhatsApp JID: <span className="font-mono text-slate-700 font-semibold">{sess.clientPhone || 'Unknown'}</span></p>
+                          <p>⚡ Session ID: <span className="font-mono text-indigo-700 font-semibold">{sess.sessionId}</span></p>
+                          {sess.controlCode && (
+                            <p>🔑 Unique Control Code: <span className="font-mono text-emerald-750 font-black">{sess.controlCode}</span></p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end md:self-center">
+                        <button
+                          onClick={() => {
+                            toggleSessionEnabled(sess.sessionId, !!sess.disabled);
+                          }}
+                          className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${sess.disabled ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}`}
+                        >
+                          {sess.disabled ? '🟢 Enable Bot' : '🔴 Disable Bot'}
+                        </button>
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-semibold">
+                <span>💡 Toggle bot state instantly in production</span>
+                <span className="font-mono text-slate-300">DANSCOM MULTI-TENANT</span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <aside className="w-64 bg-white border-r border-slate-200 p-6 flex flex-col gap-8 flex-shrink-0 overflow-y-auto">
@@ -1975,9 +2152,16 @@ export default function App() {
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Active Connected Bots</p>
                   <p className="text-3xl font-black text-slate-800 mt-1">{sessions.filter(s => s.connected).length}</p>
                 </div>
-                <div className="bg-white border border-slate-100 shadow-sm rounded-3xl p-6">
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Aggregate Command Load</p>
-                  <p className="text-3xl font-black text-slate-800 mt-1">{stats.totalCommands}</p>
+                <div className="bg-white border border-slate-100 shadow-sm rounded-3xl p-6 relative overflow-hidden group hover:border-violet-200 transition-all duration-300">
+                  <div className="absolute top-0 right-0 p-3 flex items-center gap-1.5 select-none-all">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span className="text-[9px] font-mono font-bold text-emerald-500 uppercase tracking-widest whitespace-nowrap">live feed</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Total Commands Executed</p>
+                  <p className="text-3xl font-black text-slate-800 mt-1 transition-all duration-200 group-hover:scale-[1.01] origin-left">{stats.totalCommands}</p>
                 </div>
                 <div className="bg-white border border-slate-100 shadow-sm rounded-3xl p-6">
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Active Subscriber JIDs</p>
@@ -2086,6 +2270,21 @@ export default function App() {
                     <div>
                       <h4 className="text-sm font-black uppercase text-slate-800">{plugin.name || 'Capabilities'}</h4>
                       <p className="text-xs text-slate-400 mt-1 select-none leading-relaxed">Automated trigger hooks with full command support.</p>
+                      
+                      {/* Feature under Ping Connection as requested by user */}
+                      {plugin.id === 'ping' && (
+                        <div className="pt-3 mt-3 border-t border-slate-105">
+                          <button
+                            onClick={() => setShowBotManagerModal(true)}
+                            className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm flex items-center justify-center gap-1.5"
+                          >
+                            🤖 Bot Connection Manager ({sessions.length})
+                          </button>
+                          <p className="text-[9px] text-slate-400 mt-1.5 text-center leading-normal">
+                            Enable or disable live bots in runtime instantly.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

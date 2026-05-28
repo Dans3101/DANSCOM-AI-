@@ -205,14 +205,19 @@ export const handleMessages = async (sock: WASocket, upsert: { messages: any[] }
       ];
 
       if (!isCmd) {
-        const lowerBody = body.toLowerCase().trim();
-        const firstWord = lowerBody.split(/\s+/)[0];
-        const isNumericSubmenu = /^\d+$/.test(firstWord) && parseInt(firstWord, 10) >= 1 && parseInt(firstWord, 10) <= 22;
-        
-        if (knownCommands.includes(firstWord) || isNumericSubmenu) {
-          isCmd = true;
-          command = firstWord;
-          args = body.slice(firstWord.length).trim().split(/\s+/).filter(Boolean);
+        // Only parse commands without standard prefixes when NOT in a group chat.
+        // In group chats, commands MUST have a prefix to execute. This prevents numbers like "1", "2"
+        // or starting letters from triggering the bot without explicit group consent.
+        if (!isGroup) {
+          const lowerBody = body.toLowerCase().trim();
+          const firstWord = lowerBody.split(/\s+/)[0];
+          const isNumericSubmenu = /^\d+$/.test(firstWord) && parseInt(firstWord, 10) >= 1 && parseInt(firstWord, 10) <= 22;
+          
+          if (knownCommands.includes(firstWord) || isNumericSubmenu) {
+            isCmd = true;
+            command = firstWord;
+            args = body.slice(firstWord.length).trim().split(/\s+/).filter(Boolean);
+          }
         }
       }
 
@@ -230,11 +235,38 @@ export const handleMessages = async (sock: WASocket, upsert: { messages: any[] }
       }
 
       // Command Handler
+      const { getSessionMetadata } = await import('../services/terminalService.js');
+      const metadata = await getSessionMetadata(sessionId).catch(() => null);
+      const isSessionDisabled = metadata?.disabled === true;
+
       if (isCmd) {
+        // Check Public / Private mode settings (Only owners can run commands if in private mode)
+        const isPublicMode = await isEnabled('public_mode', sessionId);
+        if (!isPublicMode && !isOwner) {
+          console.log(`[Private Access Filter] Ignored command '${command}' from non-owner sender ${sender} because bot is in PRIVATE mode.`);
+          continue;
+        }
+
+        if (isSessionDisabled && command !== 'checksub' && command !== 'pay') {
+          // Send disabled notification for commands
+          await sock.sendMessage(from, { 
+            text: `🛑 *Your DANSCOM AI is disabled.*\n\nThis bot connection (Session: \`${sessionId}\`) is currently suspended/disabled.\n\n_Please complete your active subscription or contact the terminal administrator to re-enable your access._` 
+          }, { quoted: m });
+          continue;
+        }
         await processCommand(sock, m, command, args, { isOwner, isGroup, sender });
       } else {
         // AI Smart Reply if enabled
         if (await isEnabled('ai_smart_reply', sessionId) && !m.key.fromMe) {
+          if (isSessionDisabled) {
+            // Do not reply or send disabled warning for casual non-command messages in group chats to avoid spam, but can send in private DM
+            if (!isGroup) {
+              await sock.sendMessage(from, { 
+                text: `🛑 *Your DANSCOM AI is disabled.*\n\nThis bot connection is currently suspended/disabled.\n\n_Please contact your administrator to re-enable._` 
+              }, { quoted: m });
+            }
+            continue;
+          }
           // Only reply if mentioned or in private chat
           if (!isGroup || body.toLowerCase().includes('bot')) {
               const reply = await geminiAssistant(body);

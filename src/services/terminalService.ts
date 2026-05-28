@@ -562,30 +562,61 @@ export const getAllPayments = async (): Promise<PaymentTransaction[]> => {
 export interface SessionMetadata {
   clientName: string;
   clientPhone: string;
+  disabled?: boolean;
+  controlCode?: string;
 }
 
 const inMemoryMetadata = new Map<string, SessionMetadata>();
 
-export const saveSessionMetadata = async (sessionId: string, clientName: string, clientPhone: string): Promise<void> => {
-  inMemoryMetadata.set(sessionId, { clientName, clientPhone });
+export const saveSessionMetadata = async (
+  sessionId: string, 
+  clientName: string, 
+  clientPhone: string, 
+  disabled?: boolean, 
+  controlCode?: string
+): Promise<SessionMetadata> => {
+  const existing = await getSessionMetadata(sessionId);
+  const code = controlCode || existing?.controlCode || Math.floor(100000 + Math.random() * 900000).toString();
+  const isCurrentlyDisabled = disabled !== undefined ? disabled : (existing?.disabled || false);
+
+  const updated: SessionMetadata = { 
+    clientName, 
+    clientPhone, 
+    disabled: isCurrentlyDisabled, 
+    controlCode: code 
+  };
+
+  inMemoryMetadata.set(sessionId, updated);
   if (getIsFirestoreUsable() && settingsDb) {
     try {
-      await settingsDb.doc(`metadata_${sessionId}`).set({ clientName, clientPhone });
+      await settingsDb.doc(`metadata_${sessionId}`).set(updated);
     } catch (e: any) {
       console.warn(`[TerminalService] Failed to save session metadata for ${sessionId}:`, e.message);
     }
   }
+  return updated;
 };
 
 export const getSessionMetadata = async (sessionId: string): Promise<SessionMetadata | null> => {
   if (inMemoryMetadata.has(sessionId)) {
-    return inMemoryMetadata.get(sessionId) || null;
+    const meta = inMemoryMetadata.get(sessionId) || null;
+    if (meta && !meta.controlCode) {
+      meta.controlCode = Math.floor(100000 + Math.random() * 900000).toString();
+      meta.disabled = meta.disabled || false;
+      saveSessionMetadata(sessionId, meta.clientName, meta.clientPhone, meta.disabled, meta.controlCode).catch(() => {});
+    }
+    return meta;
   }
   if (getIsFirestoreUsable() && settingsDb) {
     try {
       const doc = await settingsDb.doc(`metadata_${sessionId}`).get();
       if (doc.exists) {
         const data = doc.data() as SessionMetadata;
+        if (!data.controlCode) {
+          data.controlCode = Math.floor(100000 + Math.random() * 900000).toString();
+          data.disabled = data.disabled || false;
+          await settingsDb.doc(`metadata_${sessionId}`).set(data);
+        }
         inMemoryMetadata.set(sessionId, data);
         return data;
       }

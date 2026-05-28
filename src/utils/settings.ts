@@ -12,6 +12,7 @@ const DEFAULTS: { [key: string]: boolean } = {
   see_deleted_messages: true,
   save_view_once: true,
   antilink: false,
+  public_mode: true,
 };
 
 const cache: { [key: string]: boolean } = {};
