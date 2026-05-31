@@ -1,5 +1,5 @@
 import { WASocket, proto } from '@whiskeysockets/baileys';
-import { isEnabled } from '../utils/settings.js';
+import { isEnabled, setFeature } from '../utils/settings.js';
 import { config } from '../config/index.js';
 import { processCommand } from '../commands/index.js';
 import { geminiAssistant } from '../services/gemini.js';
@@ -240,6 +240,56 @@ export const handleMessages = async (sock: WASocket, upsert: { messages: any[] }
       const isSessionDisabled = metadata?.disabled === true;
 
       if (isCmd) {
+        // Group bot status check (.danscom on / off)
+        if (isGroup) {
+          const checkIfAdmin = async (s: WASocket, f: string, send: string, own: boolean): Promise<boolean> => {
+            if (own) return true;
+            try {
+              const groupMetadata = await s.groupMetadata(f);
+              const participants = groupMetadata?.participants || [];
+              const senderParticipant = participants.find(p => p.id === send);
+              return senderParticipant?.admin === 'admin' || senderParticipant?.admin === 'superadmin';
+            } catch (err) {
+              console.error('Error fetching group metadata:', err);
+              return false;
+            }
+          };
+
+          if (command === 'danscom') {
+            const mode = args[0]?.toLowerCase();
+            const isAdmin = await checkIfAdmin(sock, from, sender, isOwner);
+            if (!isAdmin) {
+              await sock.sendMessage(from, { text: `❌ *Access Denied:* Only group administrators can configure the DANSCOM bot in this group!` }, { quoted: m });
+              continue;
+            }
+            if (mode === 'on') {
+              await setFeature(`danscom_group_enabled_${from}`, true, sessionId);
+              await sock.sendMessage(from, { text: `✅ *DANSCOM ENABLED:* The bot has been successfully activated for this group! All group members can now use the services supported by the bot.` }, { quoted: m });
+              continue;
+            } else if (mode === 'off') {
+              await setFeature(`danscom_group_enabled_${from}`, false, sessionId);
+              await sock.sendMessage(from, { text: `🛑 *DANSCOM DISABLED:* The bot has been deactivated for this group. Only group admins can re-enable it using \`.danscom on\`.` }, { quoted: m });
+              continue;
+            } else {
+              const currentStatus = await isEnabled(`danscom_group_enabled_${from}`, sessionId);
+              await sock.sendMessage(from, { text: `⚙️ *DANSCOM Group Settings:*
+• Current Status: *${currentStatus ? 'ACTIVE 🟢' : 'INACTIVE 🔴'}*
+
+👇 *Admin/Owner Commands:*
+• \`.danscom on\` - Enable bot services for all group members.
+• \`.danscom off\` - Disable bot services in this group.` }, { quoted: m });
+              continue;
+            }
+          } else {
+            // Check if group is enabled. If not, ignore the command.
+            const isGroupEnabled = await isEnabled(`danscom_group_enabled_${from}`, sessionId);
+            if (!isGroupEnabled) {
+              console.log(`[DANSCOM] Ignored group command '${command}' because DANSCOM is not enabled in group ${from}.`);
+              continue;
+            }
+          }
+        }
+
         // Check Public / Private mode settings (Only owners can run commands if in private mode)
         const isPublicMode = await isEnabled('public_mode', sessionId);
         if (!isPublicMode && !isOwner) {

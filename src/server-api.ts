@@ -182,6 +182,16 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
+app.get('/api/download-spec', async (req, res) => {
+  try {
+    const { generateSpecificationPdf } = await import('./utils/specPdfGenerator.js');
+    await generateSpecificationPdf(res);
+  } catch (error: any) {
+    console.error('[Spec PDF Download Error]:', error);
+    res.status(500).json({ error: 'Failed to generate system specification PDF. ' + error.message });
+  }
+});
+
 app.get('/api/plugins', (req, res) => {
   const plugins = [
     { id: 'ping', name: 'Ping Connection', category: 'Utility', desc: 'Check bot responsiveness' },
