@@ -2,6 +2,7 @@ import { WASocket, proto } from '@whiskeysockets/baileys';
 import { setFeature, isEnabled } from '../utils/settings.js';
 import { incrementCommandCount } from '../utils/commandTracker.js';
 import { geminiAssistant } from '../services/gemini.js';
+import { downloadMediaBuffer } from '../utils/mediaUtils.js';
 import { analyticsDb, premiumDb, contactsDb, usersDb, sessionsDb, getIsFirestoreUsable } from '../database/firebase.js';
 import { isUserPaid, initiateIntasendPayment, getLatestPendingPayment, verifyIntasendPayment, getPayheroConfig, getSessionMetadata, saveSessionMetadata } from '../services/terminalService.js';
 import admin from 'firebase-admin';
@@ -50,37 +51,6 @@ An automated payment pop-up of *5 KES* has been requested directly on phone *+${
     await sock.sendMessage(from, { text: '❌ *IntaSend Payment Server Offline:* Please retry in a few moments.' }, { quoted: m });
   }
 };
-
-async function downloadMediaBuffer(url: string, timeoutMs = 25000): Promise<Buffer | null> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'video/mp4,audio/mp4,audio/mpeg,audio/*,video/*,*/*',
-        'Referer': 'https://google.com/'
-      }
-    });
-    if (!response.ok) {
-      console.warn(`[Downloader] Fetch failed with status: ${response.status} for url: ${url}`);
-      return null;
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    if (!arrayBuffer || arrayBuffer.byteLength < 50) {
-      console.warn(`[Downloader] Received empty/too-small buffer: ${arrayBuffer?.byteLength} bytes`);
-      return null;
-    }
-    return Buffer.from(arrayBuffer);
-  } catch (err: any) {
-    console.error('[Downloader] Buffer download error:', err.message);
-    return null;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
 
 async function downloadUniversalVideo(urlStr: string): Promise<{ videoUrl: string | null; caption: string }> {
   let videoUrl: string | null = null;

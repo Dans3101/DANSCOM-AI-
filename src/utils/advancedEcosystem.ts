@@ -4,6 +4,7 @@ import path from 'path';
 import admin from 'firebase-admin';
 import { getIsFirestoreUsable } from '../database/firebase.js';
 import { geminiAssistant } from '../services/gemini.js';
+import { downloadMediaBuffer } from './mediaUtils.js';
 
 // Define the robust database schema for the complete advanced WhatsApp Operating System (DANSCOM Labs)
 export interface UserProfile {
@@ -1825,8 +1826,7 @@ If anyone types *"${phrase}"*, the bot will respond automatically inside private
       return sock.sendMessage(from, { text: cardProfile }, { quoted: m }).then(() => true);
     }
 
-    case 'game':
-    case 'play': {
+    case 'game': {
       const defaultGames = [
         '🎮 Chess simulator active! Current setup coordinates: E2 to E4.',
         '🃏 Blackjack! Your hand: King ♠️, Jack ♦️ (Total Score: 20 points). Simulated dealer card hidden.',
@@ -1842,6 +1842,116 @@ If anyone types *"${phrase}"*, the bot will respond automatically inside private
 
 💡 _Pioneering full multiplayer gaming experiences directly inner WhatsApp templates!_`;
       return sock.sendMessage(from, { text }, { quoted: m }).then(() => true);
+    }
+    case 'play':
+    case 'song': {
+      const querySong = args.join(' ');
+      if (!querySong) return sock.sendMessage(from, { text: '❗ Please provide a search query.' }, { quoted: m }).then(() => true);
+      await sock.sendMessage(from, { text: `⏳ *Searching and preparing audio:* "${querySong}"... 🎵` }, { quoted: m });
+      
+      try {
+        let titleSong = querySong;
+        let downloadUrl = '';
+
+        // Try Erdwpe
+        try {
+          const res = await fetch(`https://api.erdwpe.com/api/ytdl/play?query=${encodeURIComponent(querySong)}`);
+          if (res.ok) {
+            const data = await res.json() as any;
+            if (data.status && data.result) {
+                const result = data.result;
+                titleSong = result.title || querySong;
+                downloadUrl = result.audio?.url || result.url || result.video?.url || '';
+            }
+          }
+        } catch (e) {
+          console.warn('Erdwpe failed', e);
+        }
+
+        // Try Widipe fallback
+        if (!downloadUrl) {
+          const res = await fetch(`https://widipe.com/ytplay?query=${encodeURIComponent(querySong)}`);
+          if (res.ok) {
+            const data = await res.json() as any;
+            if (data.status && data.result) {
+              titleSong = data.result.title || titleSong;
+              downloadUrl = data.result.download?.url || data.result.url || '';
+            }
+          }
+        }
+        
+        if (!downloadUrl) throw new Error('Could not find downloadable audio URL.');
+        
+        const audioBuffer = await downloadMediaBuffer(downloadUrl, 60000);
+        if (audioBuffer && audioBuffer.length > 50) {
+          const fileName = `${titleSong.replace(/[^a-zA-Z0-9]/g, '_')}.mp3`;
+          await sock.sendMessage(from, { 
+            document: audioBuffer,
+            mimetype: 'audio/mpeg',
+            fileName: fileName,
+            caption: `🎵 *${titleSong}* downloaded successfully.`
+          }, { quoted: m });
+        } else {
+          throw new Error('Could not download audio content');
+        }
+      } catch (err: any) {
+        console.error('[Music Downloader Error]:', err.message);
+        await sock.sendMessage(from, { text: `❌ *Media Download Failed:* ${err.message}.` }, { quoted: m });
+      }
+      return true;
+    }
+
+    case 'video':
+    case 'ytmp4': {
+      const queryVideo = args.join(' ');
+      if (!queryVideo) return sock.sendMessage(from, { text: '❗ Please provide a search query or URL.' }, { quoted: m }).then(() => true);
+      await sock.sendMessage(from, { text: `⏳ *Searching and preparing video:* "${queryVideo}"... 🎥` }, { quoted: m });
+      
+      try {
+        let titleVideo = queryVideo;
+        let downloadUrl = '';
+
+        // Simple check if it's a URL
+        if (queryVideo.startsWith('http')) {
+           const res = await fetch(`https://api.erdwpe.com/api/ytdl/ytmp4?url=${encodeURIComponent(queryVideo)}`);
+           if (res.ok) {
+             const data = await res.json() as any;
+             if (data.status && data.result) {
+                titleVideo = data.result.title || titleVideo;
+                downloadUrl = data.result.download?.url || data.result.url || data.result.video?.url || '';
+             }
+           }
+        } else {
+           // Search and get video
+           const res = await fetch(`https://api.erdwpe.com/api/ytdl/play?query=${encodeURIComponent(queryVideo)}`);
+           if (res.ok) {
+             const data = await res.json() as any;
+             if (data.status && data.result) {
+               titleVideo = data.result.title || titleVideo;
+               downloadUrl = data.result.video?.url || data.result.url || data.result.audio?.url || '';
+             }
+           }
+        }
+        
+        if (!downloadUrl) throw new Error('Could not find downloadable video URL.');
+
+        const videoBuffer = await downloadMediaBuffer(downloadUrl, 60000);
+        if (videoBuffer && videoBuffer.length > 50) {
+          const fileName = `${titleVideo.replace(/[^a-zA-Z0-9]/g, '_')}.mp4`;
+          await sock.sendMessage(from, { 
+            document: videoBuffer,
+            mimetype: 'video/mp4',
+            fileName: fileName,
+            caption: `🎥 *${titleVideo}* downloaded successfully.`
+          }, { quoted: m });
+        } else {
+          throw new Error('Could not download video content');
+        }
+      } catch (err: any) {
+        console.error('[Video Downloader Error]:', err.message);
+        await sock.sendMessage(from, { text: `❌ *Media Download Failed:* ${err.message}.` }, { quoted: m });
+      }
+      return true;
     }
 
     case 'signals':
