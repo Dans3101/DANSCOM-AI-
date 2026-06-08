@@ -5,6 +5,7 @@ import admin from 'firebase-admin';
 import { getIsFirestoreUsable } from '../database/firebase.js';
 import { geminiAssistant } from '../services/gemini.js';
 import { downloadMediaBuffer } from './mediaUtils.js';
+import { agentHandler } from './agent.js';
 
 // Define the robust database schema for the complete advanced WhatsApp Operating System (DANSCOM Labs)
 export interface UserProfile {
@@ -146,7 +147,7 @@ export const syncUserProfile = async (profile: UserProfile): Promise<void> => {
 
   // 1. Sync to local JSON
   try {
-    fs.writeFileSync(STORE_PATH, JSON.stringify(ecosystemDb, null, 2));
+    await fs.promises.writeFile(STORE_PATH, JSON.stringify(ecosystemDb, null, 2));
   } catch (err: any) {
     console.error('[Ecosystem DB Backup failed]:', err.message);
   }
@@ -466,6 +467,10 @@ Node Identifier: +${profile.phone}
 • Simulated Cloud storage: *${profile.cloudStorage.length} files stored*
 • Automation flows: *${profile.automation.length} active triggers*`;
       return sock.sendMessage(from, { text: statsText }, { quoted: m }).then(() => true);
+    }
+
+    case 'agent': {
+        return agentHandler(from, sock, args, m);
     }
 
     // ═══════════════════════════════

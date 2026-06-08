@@ -8,6 +8,7 @@ import { isUserPaid, initiateIntasendPayment, getLatestPendingPayment, verifyInt
 import admin from 'firebase-admin';
 import fs from 'fs';
 import path from 'path';
+import { agentHandler } from '../utils/agent.js';
 
 const sendPaymentTrigger = async (sock: WASocket, m: any, from: string, sender: string) => {
   const phone = sender.split('@')[0].split(':')[0];
@@ -320,58 +321,7 @@ export const processCommand = async (
       case 'menu':
       case 'allmenu':
       case 'help': {
-        const currentDate = new Date().toLocaleDateString('en-GB', { timeZone: 'Africa/Nairobi' });
-        const currentTime = new Date().toLocaleTimeString('en-GB', { 
-          timeZone: 'Africa/Nairobi',
-          hour12: false, 
-          hour: '2-digit', 
-          minute: '2-digit', 
-          second: '2-digit' 
-        });
-        
-        const now = Date.now();
-        if (now - lastMenuUsersFetch > MENU_USERS_TTL) {
-          try {
-            if (getIsFirestoreUsable()) {
-              let realCount = 0;
-              
-              if (usersDb) {
-                const countSnap = await usersDb.count().get().catch(() => null);
-                if (countSnap) {
-                  realCount += countSnap.data().count;
-                }
-              }
-              
-              if (contactsDb) {
-                const countSnap2 = await contactsDb.count().get().catch(() => null);
-                if (countSnap2) {
-                  realCount += countSnap2.data().count;
-                }
-              }
-              
-              if (sessionsDb) {
-                const countSnap3 = await sessionsDb.count().get().catch(() => null);
-                if (countSnap3) {
-                  realCount += countSnap3.data().count;
-                }
-              }
-
-              // Base simulated count is 5066 + real registered database entries
-              cachedMenuUsersCount = 5066 + realCount;
-              lastMenuUsersFetch = now;
-            }
-          } catch (e) {
-            console.warn('[Menu Users Count] Failed to update count:', e);
-          }
-        }
-
-        const usersCount = cachedMenuUsersCount;
-
         const menuText = `──〔 *DANSCOM BOT MAIN MENU* 〕──
-📅 Date: ${currentDate} | ⏰ Time: ${currentTime}
-👥 Active Users: ${usersCount}+
-
-🌐 *Click or type a number (1-18) to view its sub-commands:*
 
 1. 🌐 MAIN MENU
 2. 🤖 AI MENU
@@ -383,93 +333,19 @@ export const processCommand = async (
 8. 🌍 GENERAL MENU
 9. ⚽ SPORTS MENU
 10. 📱 STALK MENU
-11. 🎵 MUSIC MENU
-12. 🎬 VIDEO MENU
-13. 🛠️ TOOLS MENU
-14. 👑 OWNER MENU
-15. 📢 CHANNEL MENU
-16. 🛒 STORE & WALLET MENU
-17. 📄 INFORMATION MENU
-18. 📁 CLOUD STORAGE & OS APPS
+11. 🤖 AGENT MENU
+12. 🎵 MUSIC MENU
+13. 🎬 VIDEO MENU
+14. 🛠️ TOOLS MENU
+15. 👑 OWNER MENU
+16. 📢 CHANNEL MENU
+17. 🛒 STORE & WALLET MENU
+18. 📄 INFORMATION MENU
+19. 📁 CLOUD STORAGE & OS APPS
 
 └──────────────────────┘
-💡 _Tip: Send just the number (e.g., 4) to instantly view that category's options!_`.trim();
-
-        try {
-          const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');
-          if (fs.existsSync(imagePath)) {
-            const media = await (sock as any).prepareMessageMedia({ image: fs.readFileSync(imagePath) }, { upload: (sock as any).waUploadToServer });
-            await sock.sendMessage(from, {
-              viewOnceMessage: {
-                message: {
-                  templateMessage: {
-                    hydratedTemplate: {
-                      imageMessage: media.imageMessage,
-                      hydratedContentText: menuText,
-                      hydratedButtons: [
-                        {
-                          index: 1,
-                          urlButton: {
-                            displayText: '🔔 JOIN CHANNEL',
-                            url: 'https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H'
-                          }
-                        },
-                        {
-                          index: 2,
-                          urlButton: {
-                            displayText: '💬 JOIN SUPPORT GROUP',
-                            url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1'
-                          }
-                        }
-                      ]
-                    }
-                  }
-                }
-              }
-            } as any, { quoted: m });
-          } else {
-            await sock.sendMessage(from, {
-              viewOnceMessage: {
-                message: {
-                  templateMessage: {
-                    hydratedTemplate: {
-                      hydratedContentText: menuText,
-                      hydratedButtons: [
-                        {
-                          index: 1,
-                          urlButton: {
-                            displayText: '🔔 JOIN CHANNEL',
-                            url: 'https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H'
-                          }
-                        },
-                        {
-                          index: 2,
-                          urlButton: {
-                            displayText: '💬 JOIN SUPPORT GROUP',
-                            url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1'
-                          }
-                        }
-                      ]
-                    }
-                  }
-                }
-              }
-            } as any, { quoted: m });
-          }
-        } catch (err: any) {
-          console.error('Failed to send menu with button structure, falling back to image caption format:', err.message);
-          const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');
-          const fallbackText = `${menuText}\n\n[ 🔔 JOIN CHANNEL ]\nhttps://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n\n[ 💬 JOIN SUPPORT GROUP ]\nhttps://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1`;
-          
-          if (fs.existsSync(imagePath)) {
-            await sock.sendMessage(from, { 
-              image: fs.readFileSync(imagePath), 
-              caption: fallbackText 
-            }, { quoted: m });
-          } else {
-            await sock.sendMessage(from, { text: fallbackText }, { quoted: m });
-          }
-        }
+💡 _Tip: Type the number (e.g., 11) to view that category's options or start a form!_`;
+        await sock.sendMessage(from, { text: menuText }, { quoted: m });
         break;
       }
 
@@ -490,7 +366,11 @@ export const processCommand = async (
       case '15':
       case '16':
       case '17':
-      case '18': {
+      case '18':
+      case '19': {
+        if (command === '11') {
+          return agentHandler(from, sock, [], m);
+        }
         const submenusText: Record<string, string> = {
           '1': `──〔 🌐 MAIN MENU 〕──\n\n• .menu / .help / .allmenu - Display general menu list\n• .ping - Check application latency and system ping speed\n• .runtime / .uptime - Check active connection time elapsed\n• .alive - View connectivity heartbeats\n• .owner - Get developer and administrator keys (Daniel Musembi)\n• .script - Get official setup code repository\n• .support - Join the technical discussion help group\n• .donate [amount] - Back computational systems (+Reputation)\n• .rep / .reputation [@user] - Award trust points to peers\n• .announce [text] - Send verified representative alert`,
           '2': `──〔 🤖 AI MENU 〕──\n\n_Google Gemini artificial intelligence assistance_\n\n• .ai [prompt] - Conversational assistant (remembering context)\n• .transcribe - Transcribe voice message audio notes instantly\n• .speak [text] - High Definition PCM TTS voice synthesizer\n• .analyzedoc [name] - Smart csv/document data parser report\n• .bizplan [idea] - consultant-level five-point venture plan\n• .legal [text] - Elite counsel legal contract summarizer\n• .tutor [question] - Patient educator with analogy-based test\n• .createagent [name] [instructions] - Spawn custom bot node\n• .gpt [prompt] - High capabilities coder assistant logic\n• .imagine [prompt] - Text-to-image graphics model`,
@@ -502,14 +382,15 @@ export const processCommand = async (
           '8': `──〔 🌍 GENERAL & ACADEMIC 〕──\n\n_Everyday search indexes, academic courses & reference tools_\n\n• .weather / .news / .define / .dictionary - Info search\n• .google / .wiki - Google Search grounding & Wiki extraction\n• .calculate / .currency / .time / .date - Real-time metrics\n• .qr / .shorturl / .tinyurl / .tourl / .tts / .translate - Encoders\n• .study [course] - Select academic syllabus/lessons\n• .homework [question] - Ask active tutor solver\n• .quiz / .exam - Play interactive learning tests\n• .studygroup [topic] - Broadcast live student peer room\n• .learningstats - Print average grades, badges, GPA records\n• .certificate - Print official graduation certificate reward`,
           '9': `──〔 ⚽ SPORTS MENU 〕──\n\n_Simulated coverage, live standings, and schedules_\n\n• .football / .match / .score - Live sports matches\n• .table - Standings details\n• .epl / .laliga / .ucl - Leagues matches\n• .player / .transfer / .nba / .f1 / .tennis / .boxing / .motogp / .livescore - Other sports`,
           '10': `──〔 📱 STALK MENU 〕──\n\n_Stalk and analyze public online profiles_\n\n• .igstalk / .ttstalk / .ghstalk / .ytstalk - Scrap profiling databases\n• .npmstalk / .gitstalk / .telegramstalk - Search dev/social systems\n• .spotifysearch / .pinterestsearch / .movieinfo - Media items scan`,
-          '11': `──〔 🎵 MUSIC MENU 〕──\n\n_Configure lyrics and play filters_\n\n• .lyrics [song name] - Get song text sheets\n• .findsong - Identify sound\n• .bass / .slow / .nightcore / .reverb - Audio tuning filters\n• .volume / .audio / .musicsearch / .playlist - Playlists management`,
-          '12': `──〔 🎬 VIDEO MENU 〕──\n\n_Transposition and formatting tools for video_\n\n• .tovideo / .toaudio / .gif - Formatter\n• .compress / .reverse / .editvideo / .trim / .merge / .mp4 / .quality - Video post-processing`,
-          '13': `──〔 🛠️ TOOLS MENU 〕──\n\n_System terminal diagnostics and cryptography tools_\n\n• .take / .fancy / .style - Text styling fonts\n• .readmore - Expandable spoilers\n• .obfuscate / .encode / .decode / .base64 / .binary / .hex - Cryptologies\n• .inspect / .json / .fetch / .upload / .server - Host network scripts`,
-          '14': `──〔 👑 OWNER MENU 〕──\n\n_Super-user credentials controls (Daniel Musembi or configured Owner only)_\n\n• .ban / .unban [@user] - Manage bot access rules\n• .broadcast [text] - Mass-send text across active group sessions\n• .join / .leave [link] - Manage group participation\n• .clearchats - Purge connection memory cache\n• .setcmd / .delcmd / .premium / .unpremium - Authorization configurations\n• .mode [public/private] / .eval [code] / .exec [cmd] / .getfile / .save - System controls`,
-          '15': `──〔 📢 CHANNEL & COMMUNITY 〕──\n\n_Control social community feeds, birthdays list, and events_\n\n• .channel / .subscribe / .unsubscribe - Join community channels\n• .post / .updates / .announcement - Broadcast controls\n• .poll / .reaction / .views / .followers - Feedback and insights\n• .birthday / .birthdays [name] [date] - Log/manage group anniversaries\n• .event [title] [date] - Event setup\n• .attendance - Class/Group roll-call checklist\n• .fundraise - Active tech crowdfunding status`,
-          '16': `──〔 🛒 STORE, WALLET & ERP 〕──\n\n_Simulated digital wallet, credit loans, utility payments, and ERP ledger_\n\n• .wallet - View core balance, credit tier limits, and referral code\n• .balance - Check balance immediately\n• .deposit [amount] - Simulate safe payhero checkout deposit\n• .withdraw [amount] - Initiate micro cashouts\n• .send [@user] [amount] - instant user-to-user funds transfer\n• .borrow [amount] - Direct micro credit facility loan approvals\n• .payloan [amount] - Repay outstanding system loan balance\n• .paybill / .buyairtime / .buydata [target] [amount] - Utilities\n• .expense / .addexpense [amount] [category] [desc] - Expenditure reports\n• .save [amount] - Automated savings goal vault\n• .chama - Rotating group savings coordinator\n• .invest [index] - Invest/grow tokens\n• .crm / .customers - CRM panel\n• .appointment [time] - Session bookings\n• .staff [name] [role] - Employee listings\n• .invoice / .receipt [label] [price] - Auto invoice creator\n• .quotation [label] [price] - Instantly compiled business quota\n• .inventory - real-time inventory count\n• .sales - Core transaction logs\n• .bizreport - Unified corporate metrics performance dashboard\n• .shop / .products / .checkout / .cart / .orders - Store checkout`,
-          '17': `──〔 📄 INFORMATION MENU 〕──\n\n_Legal policies, rules, and contact channels_\n\n• .rules / .terms / .privacy - Service guidelines\n• .faq / .about / .contact - Support channels\n• .report / .feedback / .bug / .version - Feedback forms`,
-          '18': `──〔 📁 CLOUD STORAGE & OS APPS 〕──\n\n_Personal cloud storage files vault and mini-apps runtime ecosystem_\n\n• .savefile / .upload [file] - Upload documents to AES-256 encrypted vault\n• .myfiles / .files - Manage/list stored cloud document attachments\n• .appstore / .install [app] - Access retro games, FX trading signals, campaigner\n• .businesscard / .card - Generate shareable dynamic NFC digital card\n• .game / .play - Play live multi-user interactive Chess or Blackjack\n• .signals / .trade - Real-time forex/crypto alerts forecasting signals\n• .bulksms [text] - Mass campaign promotional broadcast router`
+          '11': `──〔 🤖 AGENT MENU 〕──\n\n_Multi-tenant agent for WhatsApp, Telegram, Discord, and Web_\n\n• .agent connect - Link this group/platform\n• .agent chat [msg] - Send message to shared pool\n• .agent pull [url] - Sync information from website`,
+          '12': `──〔 🎵 MUSIC MENU 〕──\n\n_Configure lyrics and play filters_\n\n• .lyrics [song name] - Get song text sheets\n• .findsong - Identify sound\n• .bass / .slow / .nightcore / .reverb - Audio tuning filters\n• .volume / .audio / .musicsearch / .playlist - Playlists management`,
+          '13': `──〔 🎬 VIDEO MENU 〕──\n\n_Transposition and formatting tools for video_\n\n• .tovideo / .toaudio / .gif - Formatter\n• .compress / .reverse / .editvideo / .trim / .merge / .mp4 / .quality - Video post-processing`,
+          '14': `──〔 🛠️ TOOLS MENU 〕──\n\n_System terminal diagnostics and cryptography tools_\n\n• .take / .fancy / .style - Text styling fonts\n• .readmore - Expandable spoilers\n• .obfuscate / .encode / .decode / .base64 / .binary / .hex - Cryptologies\n• .inspect / .json / .fetch / .upload / .server - Host network scripts`,
+          '15': `──〔 👑 OWNER MENU 〕──\n\n_Super-user credentials controls (Daniel Musembi or configured Owner only)_\n\n• .ban / .unban [@user] - Manage bot access rules\n• .broadcast [text] - Mass-send text across active group sessions\n• .join / .leave [link] - Manage group participation\n• .clearchats - Purge connection memory cache\n• .setcmd / .delcmd / .premium / .unpremium - Authorization configurations\n• .mode [public/private] / .eval [code] / .exec [cmd] / .getfile / .save - System controls`,
+          '16': `──〔 📢 CHANNEL & COMMUNITY 〕──\n\n_Control social community feeds, birthdays list, and events_\n\n• .channel / .subscribe / .unsubscribe - Join community channels\n• .post / .updates / .announcement - Broadcast controls\n• .poll / .reaction / .views / .followers - Feedback and insights\n• .birthday / .birthdays [name] [date] - Log/manage group anniversaries\n• .event [title] [date] - Event setup\n• .attendance - Class/Group roll-call checklist\n• .fundraise - Active tech crowdfunding status`,
+          '17': `──〔 🛒 STORE, WALLET & ERP 〕──\n\n_Simulated digital wallet, credit loans, utility payments, and ERP ledger_\n\n• .wallet - View core balance, credit tier limits, and referral code\n• .balance - Check balance immediately\n• .deposit [amount] - Simulate safe payhero checkout deposit\n• .withdraw [amount] - Initiate micro cashouts\n• .send [@user] [amount] - instant user-to-user funds transfer\n• .borrow [amount] - Direct micro credit facility loan approvals\n• .payloan [amount] - Repay outstanding system loan balance\n• .paybill / .buyairtime / .buydata [target] [amount] - Utilities\n• .expense / .addexpense [amount] [category] [desc] - Expenditure reports\n• .save [amount] - Automated savings goal vault\n• .chama - Rotating group savings coordinator\n• .invest [index] - Invest/grow tokens\n• .crm / .customers - CRM panel\n• .appointment [time] - Session bookings\n• .staff [name] [role] - Employee listings\n• .invoice / .receipt [label] [price] - Auto invoice creator\n• .quotation [label] [price] - Instantly compiled business quota\n• .inventory - real-time inventory count\n• .sales - Core transaction logs\n• .bizreport - Unified corporate metrics performance dashboard\n• .shop / .products / .checkout / .cart / .orders - Store checkout`,
+          '18': `──〔 📄 INFORMATION MENU 〕──\n\n_Legal policies, rules, and contact channels_\n\n• .rules / .terms / .privacy - Service guidelines\n• .faq / .about / .contact - Support channels\n• .report / .feedback / .bug / .version - Feedback forms`,
+          '19': `──〔 📁 CLOUD STORAGE & OS APPS 〕──\n\n_Personal cloud storage files vault and mini-apps runtime ecosystem_\n\n• .savefile / .upload [file] - Upload documents to AES-256 encrypted vault\n• .myfiles / .files - Manage/list stored cloud document attachments\n• .appstore / .install [app] - Access retro games, FX trading signals, campaigner\n• .businesscard / .card - Generate shareable dynamic NFC digital card\n• .game / .play - Play live multi-user interactive Chess or Blackjack\n• .signals / .trade - Real-time forex/crypto alerts forecasting signals\n• .bulksms [text] - Mass campaign promotional broadcast router`
         };
 
         const listText = submenusText[command] || '⚠️ Menu not found.';
