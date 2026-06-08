@@ -205,14 +205,11 @@ export const handleMessages = async (sock: WASocket, upsert: { messages: any[] }
       ];
 
       if (!isCmd) {
-        // Only parse commands without standard prefixes when NOT in a group chat.
-        // In group chats, commands MUST have a prefix to execute. This prevents numbers like "1", "2"
-        // or starting letters from triggering the bot without explicit group consent.
-        if (!isGroup) {
-          const lowerBody = body.toLowerCase().trim();
-          const firstWord = lowerBody.split(/\s+/)[0];
-          const isNumericSubmenu = /^\d+$/.test(firstWord) && parseInt(firstWord, 10) >= 1 && parseInt(firstWord, 10) <= 22;
-          
+        const lowerBody = body.toLowerCase().trim();
+        const firstWord = lowerBody.split(/\s+/)[0];
+        const isNumericSubmenu = /^\d+$/.test(firstWord) && parseInt(firstWord, 10) >= 1 && parseInt(firstWord, 10) <= 22;
+
+        if (isNumericSubmenu || !isGroup) {
           if (knownCommands.includes(firstWord) || isNumericSubmenu) {
             isCmd = true;
             command = firstWord;

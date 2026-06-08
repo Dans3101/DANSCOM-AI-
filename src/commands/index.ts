@@ -347,28 +347,20 @@ export const processCommand = async (
 💡 _Tip: Type the number (e.g., 11) to view that category's options or start a form!_`;
         try {
           const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');
+          const captionWithLinks = `${menuText}\n\n🔗 *JOIN CHANNEL:* https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n🔗 *JOIN SUPPORT:* https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1`;
+          
           if (fs.existsSync(imagePath)) {
             await sock.sendMessage(from, { 
               image: fs.readFileSync(imagePath), 
-              caption: menuText,
-              footer: 'DANSCOM BOT',
-              templateButtons: [
-                { index: 1, urlButton: { displayText: '🔔 JOIN CHANNEL', url: 'https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H' } },
-                { index: 2, urlButton: { displayText: '💬 JOIN SUPPORT GROUP', url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1' } }
-              ]
+              caption: captionWithLinks
             }, { quoted: m });
           } else {
             await sock.sendMessage(from, { 
-              text: menuText,
-              footer: 'DANSCOM BOT',
-              templateButtons: [
-                { index: 1, urlButton: { displayText: '🔔 JOIN CHANNEL', url: 'https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H' } },
-                { index: 2, urlButton: { displayText: '💬 JOIN SUPPORT GROUP', url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1' } }
-              ]
+              text: captionWithLinks
             }, { quoted: m });
           }
         } catch (err: any) {
-          console.error('Failed to send menu with button structure:', err);
+          console.error('Failed to send menu:', err);
           await sock.sendMessage(from, { text: menuText + '\n\n🔗 JOIN CHANNEL: https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n🔗 JOIN SUPPORT: https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1' }, { quoted: m });
         }
         break;
