@@ -320,7 +320,7 @@ export const processCommand = async (
     switch (command) {
       case 'menu':
       case 'allmenu':
-      case 'help': {
+      case 'help':
         const menuText = `──〔 *DANSCOM BOT MAIN MENU* 〕──
 
 1. 🌐 MAIN MENU
@@ -345,9 +345,33 @@ export const processCommand = async (
 
 └──────────────────────┘
 💡 _Tip: Type the number (e.g., 11) to view that category's options or start a form!_`;
-        await sock.sendMessage(from, { text: menuText }, { quoted: m });
+        try {
+          const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');
+          if (fs.existsSync(imagePath)) {
+            await sock.sendMessage(from, { 
+              image: fs.readFileSync(imagePath), 
+              caption: menuText,
+              footer: 'DANSCOM BOT',
+              templateButtons: [
+                { index: 1, urlButton: { displayText: '🔔 JOIN CHANNEL', url: 'https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H' } },
+                { index: 2, urlButton: { displayText: '💬 JOIN SUPPORT GROUP', url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1' } }
+              ]
+            }, { quoted: m });
+          } else {
+            await sock.sendMessage(from, { 
+              text: menuText,
+              footer: 'DANSCOM BOT',
+              templateButtons: [
+                { index: 1, urlButton: { displayText: '🔔 JOIN CHANNEL', url: 'https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H' } },
+                { index: 2, urlButton: { displayText: '💬 JOIN SUPPORT GROUP', url: 'https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1' } }
+              ]
+            }, { quoted: m });
+          }
+        } catch (err: any) {
+          console.error('Failed to send menu with button structure:', err);
+          await sock.sendMessage(from, { text: menuText + '\n\n🔗 JOIN CHANNEL: https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n🔗 JOIN SUPPORT: https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1' }, { quoted: m });
+        }
         break;
-      }
 
       case '1':
       case '2':
@@ -359,7 +383,6 @@ export const processCommand = async (
       case '8':
       case '9':
       case '10':
-      case '11':
       case '12':
       case '13':
       case '14':
@@ -368,9 +391,6 @@ export const processCommand = async (
       case '17':
       case '18':
       case '19': {
-        if (command === '11') {
-          return agentHandler(from, sock, [], m);
-        }
         const submenusText: Record<string, string> = {
           '1': `──〔 🌐 MAIN MENU 〕──\n\n• .menu / .help / .allmenu - Display general menu list\n• .ping - Check application latency and system ping speed\n• .runtime / .uptime - Check active connection time elapsed\n• .alive - View connectivity heartbeats\n• .owner - Get developer and administrator keys (Daniel Musembi)\n• .script - Get official setup code repository\n• .support - Join the technical discussion help group\n• .donate [amount] - Back computational systems (+Reputation)\n• .rep / .reputation [@user] - Award trust points to peers\n• .announce [text] - Send verified representative alert`,
           '2': `──〔 🤖 AI MENU 〕──\n\n_Google Gemini artificial intelligence assistance_\n\n• .ai [prompt] - Conversational assistant (remembering context)\n• .transcribe - Transcribe voice message audio notes instantly\n• .speak [text] - High Definition PCM TTS voice synthesizer\n• .analyzedoc [name] - Smart csv/document data parser report\n• .bizplan [idea] - consultant-level five-point venture plan\n• .legal [text] - Elite counsel legal contract summarizer\n• .tutor [question] - Patient educator with analogy-based test\n• .createagent [name] [instructions] - Spawn custom bot node\n• .gpt [prompt] - High capabilities coder assistant logic\n• .imagine [prompt] - Text-to-image graphics model`,
@@ -382,7 +402,6 @@ export const processCommand = async (
           '8': `──〔 🌍 GENERAL & ACADEMIC 〕──\n\n_Everyday search indexes, academic courses & reference tools_\n\n• .weather / .news / .define / .dictionary - Info search\n• .google / .wiki - Google Search grounding & Wiki extraction\n• .calculate / .currency / .time / .date - Real-time metrics\n• .qr / .shorturl / .tinyurl / .tourl / .tts / .translate - Encoders\n• .study [course] - Select academic syllabus/lessons\n• .homework [question] - Ask active tutor solver\n• .quiz / .exam - Play interactive learning tests\n• .studygroup [topic] - Broadcast live student peer room\n• .learningstats - Print average grades, badges, GPA records\n• .certificate - Print official graduation certificate reward`,
           '9': `──〔 ⚽ SPORTS MENU 〕──\n\n_Simulated coverage, live standings, and schedules_\n\n• .football / .match / .score - Live sports matches\n• .table - Standings details\n• .epl / .laliga / .ucl - Leagues matches\n• .player / .transfer / .nba / .f1 / .tennis / .boxing / .motogp / .livescore - Other sports`,
           '10': `──〔 📱 STALK MENU 〕──\n\n_Stalk and analyze public online profiles_\n\n• .igstalk / .ttstalk / .ghstalk / .ytstalk - Scrap profiling databases\n• .npmstalk / .gitstalk / .telegramstalk - Search dev/social systems\n• .spotifysearch / .pinterestsearch / .movieinfo - Media items scan`,
-          '11': `──〔 🤖 AGENT MENU 〕──\n\n_Multi-tenant agent for WhatsApp, Telegram, Discord, and Web_\n\n• .agent connect - Link this group/platform\n• .agent chat [msg] - Send message to shared pool\n• .agent pull [url] - Sync information from website`,
           '12': `──〔 🎵 MUSIC MENU 〕──\n\n_Configure lyrics and play filters_\n\n• .lyrics [song name] - Get song text sheets\n• .findsong - Identify sound\n• .bass / .slow / .nightcore / .reverb - Audio tuning filters\n• .volume / .audio / .musicsearch / .playlist - Playlists management`,
           '13': `──〔 🎬 VIDEO MENU 〕──\n\n_Transposition and formatting tools for video_\n\n• .tovideo / .toaudio / .gif - Formatter\n• .compress / .reverse / .editvideo / .trim / .merge / .mp4 / .quality - Video post-processing`,
           '14': `──〔 🛠️ TOOLS MENU 〕──\n\n_System terminal diagnostics and cryptography tools_\n\n• .take / .fancy / .style - Text styling fonts\n• .readmore - Expandable spoilers\n• .obfuscate / .encode / .decode / .base64 / .binary / .hex - Cryptologies\n• .inspect / .json / .fetch / .upload / .server - Host network scripts`,
@@ -396,6 +415,9 @@ export const processCommand = async (
         const listText = submenusText[command] || '⚠️ Menu not found.';
         await sock.sendMessage(from, { text: listText }, { quoted: m });
         break;
+      }
+      case '11': {
+        return agentHandler(from, sock, [], m);
       }
 
       case 'play':
