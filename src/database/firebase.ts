@@ -5,7 +5,16 @@ import fs from 'fs';
 import path from 'path';
 
 export let isFirestoreUsable = false;
-export const getIsFirestoreUsable = () => isFirestoreUsable;
+let firestoreDisabledUntil = 0;
+
+export const getIsFirestoreUsable = () => {
+  if (!isFirestoreUsable && firestoreDisabledUntil < Date.now()) {
+    isFirestoreUsable = true;
+    firestoreDisabledUntil = 0;
+  }
+  return isFirestoreUsable;
+};
+
 export const setFirestoreUsable = (usable: boolean) => {
   isFirestoreUsable = usable;
 };
@@ -26,8 +35,9 @@ export const handleFirestoreError = (err: any) => {
     msg.includes('unavailable') ||
     msg.includes('resource exhausted')
   ) {
-    console.error(`[Firebase] Crucial Quota/Resource Exhausted or Timeout Error Triggered! Disabling Firestore to protect server performance. Error:`, err.message);
+    console.error(`[Firebase] Crucial Quota/Resource Exhausted or Timeout Error Triggered! Disabling Firestore for 1 hour to protect server performance. Error:`, err.message);
     isFirestoreUsable = false;
+    firestoreDisabledUntil = Date.now() + 86400000; // 24 hours
   }
 };
 
@@ -121,3 +131,4 @@ export const contactsDb = db ? db.collection('contacts') : null;
 export const premiumDb = db ? db.collection('premium') : null;
 export const terminalsDb = db ? db.collection('terminals') : null;
 export const paymentsDb = db ? db.collection('payments') : null;
+export const agentsDb = db ? db.collection('agents') : null;

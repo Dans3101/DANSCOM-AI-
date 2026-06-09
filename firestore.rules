@@ -57,5 +57,13 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow write: if isAdmin();
     }
+
+    // Agents
+    match /agents/{agentId} {
+      allow read: if isAdmin();
+      allow create: if isEmailVerified() && isValidId(agentId);
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
   }
 }

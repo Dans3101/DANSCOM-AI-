@@ -59,6 +59,18 @@
         "userId": { "type": "string" }
       },
       "required": ["expiry"]
+    },
+    "Agent": {
+      "title": "Agent",
+      "description": "AI Agent configuration",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "personality": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "personality", "ownerId", "createdAt"]
     }
   },
   "firestore": {
@@ -85,6 +97,10 @@
     "premium/{userId}": {
       "schema": "PremiumSubscription",
       "description": "Premium access records"
+    },
+    "agents/{agentId}": {
+      "schema": "Agent",
+      "description": "Custom AI agents"
     }
   }
 }

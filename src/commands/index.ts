@@ -3,7 +3,7 @@ import { setFeature, isEnabled } from '../utils/settings.js';
 import { incrementCommandCount } from '../utils/commandTracker.js';
 import { geminiAssistant } from '../services/gemini.js';
 import { downloadMediaBuffer } from '../utils/mediaUtils.js';
-import { analyticsDb, premiumDb, contactsDb, usersDb, sessionsDb, getIsFirestoreUsable } from '../database/firebase.js';
+import { analyticsDb, premiumDb, contactsDb, usersDb, sessionsDb, agentsDb, getIsFirestoreUsable } from '../database/firebase.js';
 import { isUserPaid, initiateIntasendPayment, getLatestPendingPayment, verifyIntasendPayment, getPayheroConfig, getSessionMetadata, saveSessionMetadata } from '../services/terminalService.js';
 import admin from 'firebase-admin';
 import fs from 'fs';
@@ -304,17 +304,7 @@ export const processCommand = async (
   // Track in-memory command executions in real-time
   incrementCommandCount();
   
-  // Track analytics defensively
-  if (getIsFirestoreUsable() && analyticsDb) {
-    try {
-      await analyticsDb.doc(command).set({
-        usageCount: admin.firestore.FieldValue.increment(1),
-        lastUsed: admin.firestore.Timestamp.now()
-      }, { merge: true }).catch(() => {});
-    } catch (e: any) {
-      console.warn('[Analytics Error]: Failed to track analytics in Firestore:', e.message);
-    }
-  }
+  // Removed aggressive Firestore analytics to protect quota
 
   try {
     switch (command) {
@@ -349,14 +339,16 @@ export const processCommand = async (
           const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');
           const captionWithLinks = `${menuText}\n\n🔗 *JOIN CHANNEL:* https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n🔗 *JOIN SUPPORT:* https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1`;
           
+          const footerText = '\n\n🔗 *JOIN CHANNEL:* https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n🔗 *JOIN SUPPORT:* https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1';
+          
           if (fs.existsSync(imagePath)) {
             await sock.sendMessage(from, { 
               image: fs.readFileSync(imagePath), 
-              caption: captionWithLinks
+              caption: menuText + footerText
             }, { quoted: m });
           } else {
             await sock.sendMessage(from, { 
-              text: captionWithLinks
+              text: menuText + footerText
             }, { quoted: m });
           }
         } catch (err: any) {
@@ -364,6 +356,34 @@ export const processCommand = async (
           await sock.sendMessage(from, { text: menuText + '\n\n🔗 JOIN CHANNEL: https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n🔗 JOIN SUPPORT: https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1' }, { quoted: m });
         }
         break;
+
+      case 'createagent': {
+        const [name, ...personalityParts] = args;
+        if (!name || personalityParts.length === 0) {
+          await sock.sendMessage(from, { text: '⚠️ Usage: .createagent [name] [personality]' }, { quoted: m });
+          break;
+        }
+        const personality = personalityParts.join(' ');
+        const agentId = `${sender.split('@')[0]}_${Date.now()}`;
+        
+        try {
+          if (!agentsDb) {
+            await sock.sendMessage(from, { text: '⚠️ Firestore is not available.' }, { quoted: m });
+            break;
+          }
+          await agentsDb.doc(agentId).set({
+            name,
+            personality,
+            ownerId: sender,
+            createdAt: admin.firestore.Timestamp.now()
+          });
+          await sock.sendMessage(from, { text: `✅ Agent *${name}* created successfully!` }, { quoted: m });
+        } catch (err: any) {
+          console.error('Failed to create agent:', err);
+          await sock.sendMessage(from, { text: '⚠️ Failed to create agent. Try again.' }, { quoted: m });
+        }
+        break;
+      }
 
       case '1':
       case '2':
@@ -409,7 +429,16 @@ export const processCommand = async (
         break;
       }
       case '11': {
-        return agentHandler(from, sock, [], m);
+        const agentMenu = `──〔 🤖 MULTI-TENANT AI AGENT PLATFORM 〕──
+
+_Configure and manage your personalized AI agents_
+
+• .createagent [name] [personality] - Create a new tenant agent
+• .agents - List your agents
+• .agent [id] - Manage specific agent settings
+• .helpagent - View agent platform documentation`;
+        await sock.sendMessage(from, { text: agentMenu }, { quoted: m });
+        break;
       }
 
       case 'play':

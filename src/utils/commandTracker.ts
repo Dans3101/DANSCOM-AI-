@@ -1,4 +1,4 @@
-import { analyticsDb, getIsFirestoreUsable } from '../database/firebase.js';
+import { analyticsDb, getIsFirestoreUsable, handleFirestoreError } from '../database/firebase.js';
 
 let inMemoryTotalCommands = 0;
 let initialized = false;
@@ -11,6 +11,8 @@ export async function getCommandCount(): Promise<number> {
   // Fallback default
   let total = 6280; // Elegant default/fallback count
 
+  // Analytics query currently disabled to save Firestore quota.
+  /*
   if (getIsFirestoreUsable() && analyticsDb) {
     try {
       const analytics = await analyticsDb.get();
@@ -23,8 +25,10 @@ export async function getCommandCount(): Promise<number> {
       }
     } catch (err: any) {
       console.warn('[Command Tracker] Initial Firestore stats query failed, using in-memory fallback:', err.message);
+      handleFirestoreError(err);
     }
   }
+  */
 
   inMemoryTotalCommands = total;
   initialized = true;

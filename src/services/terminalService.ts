@@ -83,7 +83,7 @@ export const getIntasendConfig = () => {
 
 let lastTerminalsFetch = 0;
 let lastPaymentsFetch = 0;
-const CACHE_TTL_MS = 30000; // 30 seconds
+const CACHE_TTL_MS = 86400000; // 24 hours
 
 /**
  * Get all terminals.
