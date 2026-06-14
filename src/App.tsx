@@ -31,6 +31,8 @@ import {
   Copy,
   Check
 } from 'lucide-react';
+import InstallPrompt from './components/InstallPrompt';
+import TerminalDashboardMetrics from './components/TerminalDashboardMetrics';
 
 // --- SECURE OBSCURED PAIRING TOKEN ENCODER/DECODER ---
 function encodePairingToken(terminalId: string, sessionId: string): string {
@@ -1383,6 +1385,9 @@ export default function App() {
             </div>
           </div>
         </nav>
+        <div className="px-8 md:px-12">
+          <TerminalDashboardMetrics terminalId={activeTerminalId!} sessions={sessions} transactions={transactions} />
+        </div>
 
         <div className="flex-1 max-w-5xl w-full mx-auto p-6 md:p-12 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* Left panel: Deploy widget */}
@@ -2628,6 +2633,7 @@ export default function App() {
             </div>
           )}
         </main>
+        <InstallPrompt />
       </div>
     </div>
   );
