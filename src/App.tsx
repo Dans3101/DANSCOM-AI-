@@ -127,6 +127,7 @@ export default function App() {
   const [newTerminalOperator, setNewTerminalOperator] = useState('');
   const [newTerminalWeeklyRate, setNewTerminalWeeklyRate] = useState(5);
   const [newTerminalSetupFee, setNewTerminalSetupFee] = useState(10);
+  const [createTerminalError, setCreateTerminalError] = useState<string | null>(null);
 
   // Terminal Mini-Dashboard deploy states
   const [terminalBotId, setTerminalBotId] = useState('');
@@ -577,8 +578,9 @@ export default function App() {
   };
 
   const handleCreateTerminal = async () => {
-    if (!newTerminalId || !newTerminalName) {
-      alert('Terminal ID and Name are required!');
+    setCreateTerminalError(null);
+    if (!newTerminalId.trim() || !newTerminalName.trim()) {
+      setCreateTerminalError('Terminal ID and Name are required!');
       return;
     }
     try {
@@ -586,8 +588,8 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: newTerminalId,
-          name: newTerminalName,
+          id: newTerminalId.trim(),
+          name: newTerminalName.trim(),
           operatorName: newTerminalOperator,
           weeklyRate: newTerminalWeeklyRate,
           setupFee: newTerminalSetupFee
@@ -1357,7 +1359,7 @@ export default function App() {
     }
 
     return (
-      <div className="min-h-screen w-full bg-slate-50 text-slate-900 font-sans flex flex-col justify-start">
+      <div className="min-h-screen w-full bg-slate-50 text-slate-900 font-sans flex flex-col justify-start overflow-x-hidden">
         {/* Isolated header so users "gets pairing codes and qr codes without having the original dashboard" */}
         <nav className="h-20 bg-white border-b border-slate-200/60 flex items-center justify-between px-8 md:px-12 select-none">
           <div className="flex items-center gap-3">
@@ -1802,7 +1804,7 @@ export default function App() {
 
   // --- RENDERING MAIN DASHBOARD (OWNER / CREATOR PLATFORM) ---
   return (
-    <div className="flex flex-col h-screen w-full bg-slate-50 text-slate-900 font-sans overflow-hidden">
+    <div className="min-h-screen w-full bg-slate-50 text-slate-900 font-sans overflow-x-hidden">
       {/* Top Banner Status */}
       <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between flex-shrink-0 select-none">
         <div className="flex items-center gap-3">
@@ -1992,7 +1994,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-x-hidden">
         {/* Sidebar */}
         <aside className="w-64 bg-white border-r border-slate-200 p-6 flex flex-col gap-8 flex-shrink-0 overflow-y-auto">
           <div>
@@ -2317,6 +2319,11 @@ export default function App() {
 
                 {/* Form to Create New Terminals */}
                 <div className="bg-slate-50 p-6 md:p-8 rounded-[2rem] border border-slate-100 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 items-end">
+                  {createTerminalError && (
+                    <div className="md:col-span-3 lg:col-span-5 bg-red-50 text-red-700 p-4 rounded-2xl text-xs font-bold text-center border border-red-200">
+                      {createTerminalError}
+                    </div>
+                  )}
                   <div>
                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Terminal ID / Key</label>
                     <input 
