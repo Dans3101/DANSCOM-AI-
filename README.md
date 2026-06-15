@@ -45,6 +45,24 @@ Configure these in your Render deployment or `.env` file:
 3. Add the environment variables in the Render dashboard.
 4. Once deployed, check the logs for the QR code to scan.
 
+### 4. Deploy to GitHub Codespaces (Alternative)
+
+1. **Open in Codespaces**: Click the **Code** button in your GitHub repository and select **Codespaces** -> **New codespace**.
+2. **Environment Setup**: Once the codespace is ready, create a `.env` file in the root directory:
+   ```bash
+   touch .env
+   ```
+   Add your variables to the newly created `.env` file (refer to section 2 for the required variables: `GEMINI_API_KEY`, etc.).
+3. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
+4. **Run the Bot**:
+   ```bash
+   npm run dev
+   ```
+   The bot will start, and if it needs to pair, the logs will display the QR code or prompt for phone number verification.
+
 ## 📝 Commands
 - `.ping`: Check bot latency.
 - `.ai [query]`: Ask Gemini AI.
