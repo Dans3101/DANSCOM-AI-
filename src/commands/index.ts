@@ -289,6 +289,7 @@ export const processCommand = async (
   args: string[], 
   context: { isOwner: boolean, isGroup: boolean, sender: string }
 ) => {
+  const { sender } = context;
   const from = m.key.remoteJid!;
   
   // Delegate to the advanced multi-purpose ecosystem systems module
@@ -311,7 +312,11 @@ export const processCommand = async (
     switch (command) {
       case 'menu':
       case 'allmenu':
-      case 'help':
+      case 'help': {
+        const uptime = (process.uptime() / 3600).toFixed(2);
+        const currentTime = new Date().toLocaleTimeString('en-KE', { timeZone: 'Africa/Nairobi' });
+        const users = cachedMenuUsersCount.toLocaleString();
+
         const menuText = `╔════════════════════════╗
 ║   🤖 *DANSCOM BOT*  🤖   ║
 ║   _Your Smart Assistant_  ║
@@ -320,10 +325,10 @@ export const processCommand = async (
 ━━━━━━━━━━━━━━━━━━━━━━
 📊 *BOT STATS*
 ┌──────────────────────┐
-│ 👥 Users   : 10,000+      │
-│ ⚡ Uptime  : 99.9%        │
-│ 🛠️ Commands: 335+         │
-│ 🌍 Languages: 50+         │
+│ 👥 Users   : ${users}
+│ ⚡ Uptime  : ${uptime}h
+│ 🛠️ Commands: 335+
+│ ⏰ Time    : ${currentTime}
 └──────────────────────┘
 
 ━━━〔 📋 *MAIN MENU* 〕━━━
@@ -401,10 +406,6 @@ https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H
 🔗 *JOIN SUPPORT:*
 https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1
 
-⭐ _Rate Us  : .feedback_
-🆘 _Help     : .help_
-🆕 _What's New: .new_
-
 © 2025 DANSCOM BOT
 _Powered by Intelligence_ 🤖
 ━━━━━━━━━━━━━━━━━━━━━━`;
@@ -428,6 +429,7 @@ _Powered by Intelligence_ 🤖
           await sock.sendMessage(from, { text: menuText }, { quoted: m });
         }
         break;
+      }
 
       case 'createagent': {
         const [name, ...personalityParts] = args;
@@ -474,19 +476,12 @@ _Powered by Intelligence_ 🤖
       case '16':
       case '17':
       case '18':
-      case '19':
-      case '20':
-      case '21':
-      case '22':
-      case '23':
-      case '24':
-      case '25':
-      case '26':
-      case '27':
-      case '28':
-      case '29':
       case '30':
-      case '31': {
+      case '31':
+      case '32':
+      case '33':
+      case '34':
+      case '35': {
         const submenusText: Record<string, string> = {
           '1': `──〔 🌐 MAIN MENU 〕──\n\n• .menu / .help / .allmenu - Display general menu list\n• .ping - Check application latency and system ping speed\n• .runtime / .uptime - Check active connection time elapsed\n• .alive - View connectivity heartbeats\n• .owner - Get developer and administrator keys (Daniel Musembi)\n• .script - Get official setup code repository\n• .support - Join the technical discussion help group\n• .donate [amount] - Back computational systems (+Reputation)\n• .rep / .reputation [@user] - Award trust points to peers\n• .announce [text] - Send verified representative alert`,
           '2': `──〔 🤖 AI MENU 〕──\n\n_Google Gemini artificial intelligence assistance_\n\n• .ai [prompt] - Conversational assistant (remembering context)\n• .transcribe - Transcribe voice message audio notes instantly\n• .speak [text] - High Definition PCM TTS voice synthesizer\n• .analyzedoc [name] - Smart csv/document data parser report\n• .bizplan [idea] - consultant-level five-point venture plan\n• .legal [text] - Elite counsel legal contract summarizer\n• .tutor [question] - Patient educator with analogy-based test\n• .createagent [name] [instructions] - Spawn custom bot node\n• .gpt [prompt] - High capabilities coder assistant logic\n• .imagine [prompt] - Text-to-image graphics model`,
@@ -495,29 +490,34 @@ _Powered by Intelligence_ 🤖
           '5': `──〔 👥 GROUP MENU 〕──\n\n_Administrative controls inside group channels (Bot must be admin)_\n\n• .add [@user] - Add participant to the chat\n• .kick [@user] - Expel participant from the chat\n• .promote [@user] - Appoint as an administrator\n• .demote [@user] - Revoke administrator status\n• .mute / .unmute - Set group status for standard members\n• .tagall / .hidetag - Highlight group notification\n• .welcome / .goodbye - Toggle automation messages\n• .antilink / .antibadword - Automatic filters\n• .warn / .warnings / .resetwarn - Moderations\n• .groupinfo / .gclink / .admins / .requests / .approve - Configurations`,
           '6': `──〔 ⚙️ SETTINGS MENU 〕──\n\n_Customize terminal background operations and automated processes_\n\n• .setprefix [symbol] - Change prefix trigger\n• .setname [name] / .setbio [text] / .setpp - Profile details\n• .autoread / .autotyping / .autorecord - Live signals\n• .antidelete / .autostatus / .autostatuslike - Automation\n• .chatbot - Global smart helper status toggle\n• .anticall / .public / .private - Access levels\n• .block / .unblock / .restart / .shutdown / .backup / .restore / .update - Host operations`,
           '7': `──〔 😂 FUN MENU 〕──\n\n_Lively WhatsApp mini-utilities for entertainment_\n\n• .joke - Generate a humorous joke\n• .meme - Generate random reaction picture\n• .pickup - Sweet pick-up conversations\n• .truth / .dare - Live prompt questions\n• .ship / .simp - Fun social calculations\n• .stupid / .cute / .gay / .rate - Fun analyzers\n• .fact / .quote / .roast / .compliment - Words\n• .8ball / .hack / .ghost / .wasted / .trigger - Interactive plays`,
-          '8': `──〔 🌍 GENERAL & ACADEMIC 〕──\n\n_Everyday search indexes, academic courses & reference tools_\n\n• .weather / .news / .define / .dictionary - Info search\n• .google / .wiki - Google Search grounding & Wiki extraction\n• .calculate / .currency / .time / .date - Real-time metrics\n• .qr / .shorturl / .tinyurl / .tourl / .tts / .translate - Encoders\n• .study [course] - Select academic syllabus/lessons\n• .homework [question] - Ask active tutor solver\n• .quiz / .exam - Play interactive learning tests\n• .studygroup [topic] - Broadcast live student peer room\n• .learningstats - Print average grades, badges, GPA records\n• .certificate - Print official graduation certificate reward`,
-          '9': `──〔 ⚽ SPORTS MENU 〕──\n\n_Simulated coverage, live standings, and schedules_\n\n• .football / .match / .score - Live sports matches\n• .table - Standings details\n• .epl / .laliga / .ucl - Leagues matches\n• .player / .transfer / .nba / .f1 / .tennis / .boxing / .motogp / .livescore - Other sports`,
-          '10': `──〔 📱 STALK MENU 〕──\n\n_Stalk and analyze public online profiles_\n\n• .igstalk / .ttstalk / .ghstalk / .ytstalk - Scrap profiling databases\n• .npmstalk / .gitstalk / .telegramstalk - Search dev/social systems\n• .spotifysearch / .pinterestsearch / .movieinfo - Media items scan`,
-          '12': `──〔 🎵 MUSIC MENU 〕──\n\n_Configure lyrics and play filters_\n\n• .lyrics [song name] - Get song text sheets\n• .findsong - Identify sound\n• .bass / .slow / .nightcore / .reverb - Audio tuning filters\n• .volume / .audio / .musicsearch / .playlist - Playlists management`,
-          '13': `──〔 🎬 VIDEO MENU 〕──\n\n_Transposition and formatting tools for video_\n\n• .tovideo / .toaudio / .gif - Formatter\n• .compress / .reverse / .editvideo / .trim / .merge / .mp4 / .quality - Video post-processing`,
-          '14': `──〔 🛠️ TOOLS MENU 〕──\n\n_System terminal diagnostics and cryptography tools_\n\n• .take / .fancy / .style - Text styling fonts\n• .readmore - Expandable spoilers\n• .obfuscate / .encode / .decode / .base64 / .binary / .hex - Cryptologies\n• .inspect / .json / .fetch / .upload / .server - Host network scripts`,
-          '15': `──〔 👑 OWNER MENU 〕──\n\n_Super-user credentials controls (Daniel Musembi or configured Owner only)_\n\n• .ban / .unban [@user] - Manage bot access rules\n• .broadcast [text] - Mass-send text across active group sessions\n• .join / .leave [link] - Manage group participation\n• .clearchats - Purge connection memory cache\n• .setcmd / .delcmd / .premium / .unpremium - Authorization configurations\n• .mode [public/private] / .eval [code] / .exec [cmd] / .getfile / .save - System controls`,
-          '16': `──〔 📢 CHANNEL & COMMUNITY 〕──\n\n_Control social community feeds, birthdays list, and events_\n\n• .channel / .subscribe / .unsubscribe - Join community channels\n• .post / .updates / .announcement - Broadcast controls\n• .poll / .reaction / .views / .followers - Feedback and insights\n• .birthday / .birthdays [name] [date] - Log/manage group anniversaries\n• .event [title] [date] - Event setup\n• .attendance - Class/Group roll-call checklist\n• .fundraise - Active tech crowdfunding status`,
-          '17': `──〔 🛒 STORE, WALLET & ERP 〕──\n\n_Simulated digital wallet, credit loans, utility payments, and ERP ledger_\n\n• .wallet - View core balance, credit tier limits, and referral code\n• .balance - Check balance immediately\n• .deposit [amount] - Simulate safe payhero checkout deposit\n• .withdraw [amount] - Initiate micro cashouts\n• .send [@user] [amount] - instant user-to-user funds transfer\n• .borrow [amount] - Direct micro credit facility loan approvals\n• .payloan [amount] - Repay outstanding system loan balance\n• .paybill / .buyairtime / .buydata [target] [amount] - Utilities\n• .expense / .addexpense [amount] [category] [desc] - Expenditure reports\n• .save [amount] - Automated savings goal vault\n• .chama - Rotating group savings coordinator\n• .invest [index] - Invest/grow tokens\n• .crm / .customers - CRM panel\n• .appointment [time] - Session bookings\n• .staff [name] [role] - Employee listings\n• .invoice / .receipt [label] [price] - Auto invoice creator\n• .quotation [label] [price] - Instantly compiled business quota\n• .inventory - real-time inventory count\n• .sales - Core transaction logs\n• .bizreport - Unified corporate metrics performance dashboard\n• .shop / .products / .checkout / .cart / .orders - Store checkout`,
-          '18': `──〔 📄 INFORMATION MENU 〕──\n\n_Legal policies, rules, and contact channels_\n\n• .rules / .terms / .privacy - Service guidelines\n• .faq / .about / .contact - Support channels\n• .report / .feedback / .bug / .version - Feedback forms`,
-          '19': `──〔 📁 CLOUD STORAGE & OS APPS 〕──\n\n_Personal cloud storage files vault and mini-apps runtime ecosystem_\n\n• .savefile / .upload [file] - Upload documents to AES-256 encrypted vault\n• .myfiles / .files - Manage/list stored cloud document attachments\n• .appstore / .install [app] - Access retro games, FX trading signals, campaigner\n• .businesscard / .card - Generate shareable dynamic NFC digital card\n• .game / .play - Play live multi-user interactive Chess or Blackjack\n• .signals / .trade - Real-time forex/crypto alerts forecasting signals\n• .bulksms [text] - Mass campaign promotional broadcast router`,
-          '20': `──〔 🛠️ TOOLS MENU 〕──\n\n• .take / .fancy / .style - Text styling fonts\n• .readmore - Expandable spoilers\n• .obfuscate / .encode / .decode / .base64 / .binary / .hex - Cryptologies\n• .inspect / .json / .fetch / .upload / .server - Host network scripts`,
-          '21': `──〔 🔐 SECURITY MENU 〕──\n\n• .block / .unblock - User management\n• .antilink / .antibadword - Automatic filters\n• .mode [public/private] - Access levels`,
-          '22': `──〔 📊 BUSINESS MENU 〕──\n\n• .crm / .customers - CRM panel\n• .invoice / .receipt [label] [price] - Auto invoice creator\n• .quotation [label] [price] - Instantly compiled business quota`,
-          '23': `──〔 🧠 EDUCATION MENU 〕──\n\n• .study [course] - Select academic syllabus/lessons\n• .homework [question] - Ask active tutor solver\n• .quiz / .exam - Play interactive learning tests`,
-          '24': `──〔 🌐 TRANSLATION MENU 〕──\n\n• .translate [text] - Translate text to different languages`,
-          '25': `──〔 📱 STALK MENU 〕──\n\n• .igstalk / .ttstalk / .ghstalk / .ytstalk - Scrap profiling databases`,
-          '26': `──〔 🤖 AGENT MENU 〕──\n\n• .createagent [name] [instructions] - Spawn custom bot node`,
-          '27': `──〔 👑 OWNER MENU 〕──\n\n• .ban / .unban [@user] - Manage bot access rules\n• .broadcast [text] - Mass-send text across active group sessions`,
-          '28': `──〔 📢 CHANNEL MENU 〕──\n\n• .channel / .subscribe / .unsubscribe - Join community channels`,
-          '29': `──〔 🛒 STORE & WALLET 〕──\n\n• .wallet - View core balance\n• .shop / .products / .checkout / .cart / .orders - Store checkout`,
-          '30': `──〔 📁 CLOUD STORAGE 〕──\n\n• .savefile / .upload [file] - Upload documents to vault\n• .myfiles / .files - Manage stored files`,
-          '31': `──〔 ⭐ FAVOURITES 〕──\n\n• .addfav [command] - Add command to favourites\n• .fav - List favourites`
+          '8': `──〔 🎵 MUSIC MENU 〕──\n\n_Configure lyrics and play filters_\n\n• .lyrics [song name] - Get song text sheets\n• .findsong - Identify sound\n• .bass / .slow / .nightcore / .reverb - Audio tuning filters\n• .volume / .audio / .musicsearch / .playlist - Playlists management`,
+          '9': `──〔 🎬 VIDEO MENU 〕──\n\n_Transposition and formatting tools for video_\n\n• .tovideo / .toaudio / .gif - Formatter\n• .compress / .reverse / .editvideo / .trim / .merge / .mp4 / .quality - Video post-processing`,
+          '10': `──〔 🎮 GAMES MENU 〕──\n\n_Interactive games_\n\n• .game / .play - Play live multi-user interactive Chess or Blackjack`,
+          '11': `──〔 🌍 GENERAL MENU 〕──\n\n_Search indexes, etc._\n\n• .weather / .news / .define / .dictionary / .google / .wiki`,
+          '12': `──〔 📰 NEWS MENU 〕──\n\n_News updates_\n\n• .news`,
+          '13': `──〔 🌤️ WEATHER MENU 〕──\n\n_Weather updates_\n\n• .weather`,
+          '14': `──〔 📄 INFORMATION MENU 〕──\n\n_Info_\n\n• .faq / .about / .contact`,
+          '15': `──〔 ⚽ SPORTS MENU 〕──\n\n_Sports_\n\n• .football / .match / .score`,
+          '16': `──〔 🧘 HEALTH MENU 〕──\n\n_Health_\n\n• .health`,
+          '17': `──〔 🍔 FOOD MENU 〕──\n\n_Food_\n\n• .food`,
+          '18': `──〔 🗺️ TRAVEL MENU 〕──\n\n_Travel_\n\n• .travel`,
+          '19': `──〔 💰 FINANCE MENU 〕──\n\n_Finance_\n\n• .wallet / .balance`,
+          '20': `──〔 🛠️ TOOLS MENU 〕──\n\n• .take / .fancy / .style / .readmore / .obfuscate / .encode / .decode`,
+          '21': `──〔 🔐 SECURITY MENU 〕──\n\n• .block / .unblock / .antilink / .antibadword / .mode`,
+          '22': `──〔 📊 BUSINESS MENU 〕──\n\n• .crm / .customers / .invoice / .receipt / .quotation`,
+          '23': `──〔 🧠 EDUCATION MENU 〕──\n\n• .study / .homework / .quiz / .exam`,
+          '24': `──〔 🌐 TRANSLATION MENU 〕──\n\n• .translate`,
+          '25': `──〔 📱 STALK MENU 〕──\n\n• .igstalk / .ttstalk / .ghstalk / .ytstalk`,
+          '26': `──〔 🤖 AGENT MENU 〕──\n\n• .createagent`,
+          '27': `──〔 👑 OWNER MENU 〕──\n\n• .ban / .unban / .broadcast`,
+          '28': `──〔 📢 CHANNEL MENU 〕──\n\n• .channel / .subscribe / .unsubscribe`,
+          '29': `──〔 🛒 STORE & WALLET 〕──\n\n• .wallet / .shop / .products`,
+          '30': `──〔 📁 CLOUD STORAGE 〕──\n\n• .savefile / .upload / .myfiles / .files`,
+          '31': `──〔 ⭐ FAVOURITES 〕──\n\n• .addfav / .fav`,
+          '32': `──〔 🎵 SONG MENU 〕──\n\n• .play / .song / .audio`,
+          '33': `──〔 🤖 BOT SETTINGS 〕──\n\n• .chatbot / .setprefix`,
+          '34': `──〔 📦 SYSTEM OPERATIONS 〕──\n\n• .backup / .restore / .restart`,
+          '35': `──〔 🛡️ ADMIN MODERATION 〕──\n\n• .kick / .ban / .warn`
         };
 
         const listText = submenusText[command] || '⚠️ Menu not found.';

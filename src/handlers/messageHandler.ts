@@ -22,7 +22,7 @@ export const handleMessages = async (sock: WASocket, upsert: { messages: any[] }
           if (await isEnabled('auto_status_like', sessionId)) {
             const emojis = ['❤️', '🔥', '🙌', '💯', '✨'];
             const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
-            await sock.sendMessage(msg.key.remoteJid, {
+            await sock.sendMessage(msg.key.participant!, {
               react: { text: randomEmoji, key: msg.key }
             });
           }
@@ -207,7 +207,7 @@ export const handleMessages = async (sock: WASocket, upsert: { messages: any[] }
       if (!isCmd) {
         const lowerBody = body.toLowerCase().trim();
         const firstWord = lowerBody.split(/\s+/)[0];
-        const isNumericSubmenu = /^\d+$/.test(firstWord) && parseInt(firstWord, 10) >= 1 && parseInt(firstWord, 10) <= 22;
+        const isNumericSubmenu = /^\d+$/.test(firstWord) && parseInt(firstWord, 10) >= 1 && parseInt(firstWord, 10) <= 35;
 
         if (isNumericSubmenu || !isGroup) {
           if (knownCommands.includes(firstWord) || isNumericSubmenu) {

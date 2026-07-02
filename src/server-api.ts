@@ -121,19 +121,27 @@ app.get('/api/health', async (req, res) => {
 
 app.get('/api/logs-data', async (req, res) => {
   console.log('[API Logs] Fetching...');
-  if (!commandLogsDb || !getIsFirestoreUsable()) {
+  if (!commandLogsDb) {
+    console.warn('[API Logs] commandLogsDb is null, returning dummy logs');
+    return res.json([{ id: 'dummy', command: 'test', success: true, result: 'test result', sender: 'test', timestamp: { seconds: Math.floor(Date.now() / 1000) } }]);
+  }
+  if (!getIsFirestoreUsable()) {
     console.warn('[API Logs] Firestore not usable, returning dummy logs');
     return res.json([{ id: 'dummy', command: 'test', success: true, result: 'test result', sender: 'test', timestamp: { seconds: Math.floor(Date.now() / 1000) } }]);
   }
   try {
     console.log('[API Logs] Executing query...');
-    const snapshot = await commandLogsDb.orderBy('timestamp', 'desc').limit(100).get();
+    if (!commandLogsDb) {
+      console.error('[API Logs] commandLogsDb is null, unexpected');
+      throw new Error('commandLogsDb is null');
+    }
+    const snapshot = await commandLogsDb.get();
     const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     console.log(`[API Logs] Found ${logs.length} logs`);
     res.json(logs);
-  } catch (err) {
-    console.error('[API Logs] Error:', err);
-    res.status(500).json({ error: 'Failed to fetch logs' });
+  } catch (err: any) {
+    console.error('[API Logs] Error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch logs: ' + err.message });
   }
 });
 

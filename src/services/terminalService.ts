@@ -177,9 +177,9 @@ export const addSessionToTerminal = async (terminalId: string, sessionId: string
 
     if (getIsFirestoreUsable() && terminalsDb) {
       try {
-        await terminalsDb.doc(terminalId).update({
+        await terminalsDb.doc(terminalId).set({
           sessionIds: admin.firestore.FieldValue.arrayUnion(sessionId)
-        });
+        }, { merge: true });
       } catch (err: any) {
         console.warn(`[TerminalService] update sessionIds for terminal ${terminalId} failed:`, err.message);
         handleFirestoreError(err);
