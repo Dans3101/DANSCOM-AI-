@@ -1,6 +1,7 @@
 import { WASocket, proto } from '@whiskeysockets/baileys';
 import { setFeature, isEnabled } from '../utils/settings.js';
 import { incrementCommandCount } from '../utils/commandTracker.js';
+import { logCommandExecution } from '../database/firestoreStore.js';
 import { geminiAssistant } from '../services/gemini.js';
 import { downloadMediaBuffer } from '../utils/mediaUtils.js';
 import { analyticsDb, premiumDb, contactsDb, usersDb, sessionsDb, agentsDb, getIsFirestoreUsable } from '../database/firebase.js';
@@ -311,49 +312,120 @@ export const processCommand = async (
       case 'menu':
       case 'allmenu':
       case 'help':
-        const menuText = `──〔 *DANSCOM BOT MAIN MENU* 〕──
+        const menuText = `╔════════════════════════╗
+║   🤖 *DANSCOM BOT*  🤖   ║
+║   _Your Smart Assistant_  ║
+╚════════════════════════╝
 
-1. 🌐 MAIN MENU
-2. 🤖 AI MENU
-3. 🎨 IMAGE & EPHOTO MENU
-4. 📥 DOWNLOAD MENU
-5. 👥 GROUP MENU
-6. ⚙️ SETTINGS MENU
-7. 😂 FUN MENU
-8. 🌍 GENERAL MENU
-9. ⚽ SPORTS MENU
-10. 📱 STALK MENU
-11. 🤖 AGENT MENU
-12. 🎵 MUSIC MENU
-13. 🎬 VIDEO MENU
-14. 🛠️ TOOLS MENU
-15. 👑 OWNER MENU
-16. 📢 CHANNEL MENU
-17. 🛒 STORE & WALLET MENU
-18. 📄 INFORMATION MENU
-19. 📁 CLOUD STORAGE & OS APPS
-
+━━━━━━━━━━━━━━━━━━━━━━
+📊 *BOT STATS*
+┌──────────────────────┐
+│ 👥 Users   : 10,000+      │
+│ ⚡ Uptime  : 99.9%        │
+│ 🛠️ Commands: 335+         │
+│ 🌍 Languages: 50+         │
 └──────────────────────┘
-💡 _Tip: Type the number (e.g., 11) to view that category's options or start a form!_`;
+
+━━━〔 📋 *MAIN MENU* 〕━━━
+
+🌐 *CORE MENUS*
+┌──────────────────────┐
+│ 1.  🌐 Main Menu          │
+│ 2.  🤖 AI Menu            │
+│ 3.  🎨 Image & Photo Menu │
+│ 4.  📥 Download Menu      │
+│ 5.  👥 Group Menu         │
+│ 6.  ⚙️ Settings Menu      │
+└──────────────────────┘
+
+😂 *ENTERTAINMENT*
+┌──────────────────────┐
+│ 7.  😂 Fun Menu           │
+│ 8.  🎵 Music Menu         │
+│ 9.  🎬 Video Menu         │
+│ 10. 🎮 Games Menu  🆕     │
+└──────────────────────┘
+
+🌍 *INFORMATION & NEWS*
+┌──────────────────────┐
+│ 11. 🌍 General Menu       │
+│ 12. 📰 News Menu    🆕    │
+│ 13. 🌤️ Weather Menu 🆕   │
+│ 14. 📄 Information Menu   │
+└──────────────────────┘
+
+⚽ *SPORTS & HEALTH*
+┌──────────────────────┐
+│ 15. ⚽ Sports Menu        │
+│ 16. 🧘 Health Menu  🆕    │
+│ 17. 🍔 Food Menu    🆕    │
+│ 18. 🗺️ Travel Menu  🆕   │
+└──────────────────────┘
+
+💰 *FINANCE & TOOLS*
+┌──────────────────────┐
+│ 19. 💰 Finance Menu 🆕    │
+│ 20. 🛠️ Tools Menu         │
+│ 21. 🔐 Security Menu 🆕   │
+│ 22. 📊 Business Menu 🆕   │
+└──────────────────────┘
+
+🧠 *LEARNING*
+┌──────────────────────┐
+│ 23. 🧠 Education Menu 🆕  │
+│ 24. 🌐 Translation Menu 🆕│
+└──────────────────────┘
+
+👤 *USER & SOCIAL*
+┌──────────────────────┐
+│ 25. 📱 Stalk Menu         │
+│ 26. 🤖 Agent Menu         │
+│ 27. 👑 Owner Menu         │
+│ 28. 📢 Channel Menu       │
+└──────────────────────┘
+
+🛒 *STORE & STORAGE*
+┌──────────────────────┐
+│ 29. 🛒 Store & Wallet     │
+│ 30. 📁 Cloud Storage      │
+│ 31. ⭐ Favourites   🆕    │
+└──────────────────────┘
+
+💡 _Type the number (e.g 2)_
+_to open that menu!_
+━━━━━━━━━━━━━━━━━━━━━━
+
+🔗 *JOIN CHANNEL:*
+https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H
+
+🔗 *JOIN SUPPORT:*
+https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1
+
+⭐ _Rate Us  : .feedback_
+🆘 _Help     : .help_
+🆕 _What's New: .new_
+
+© 2025 DANSCOM BOT
+_Powered by Intelligence_ 🤖
+━━━━━━━━━━━━━━━━━━━━━━`;
+
+
         try {
           const imagePath = path.join(process.cwd(), 'src/assets/images/danscom_menu_banner_1779306614113.png');
-          const captionWithLinks = `${menuText}\n\n🔗 *JOIN CHANNEL:* https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n🔗 *JOIN SUPPORT:* https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1`;
-          
-          const footerText = '\n\n🔗 *JOIN CHANNEL:* https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n🔗 *JOIN SUPPORT:* https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1';
           
           if (fs.existsSync(imagePath)) {
             await sock.sendMessage(from, { 
               image: fs.readFileSync(imagePath), 
-              caption: menuText + footerText
+              caption: menuText
             }, { quoted: m });
           } else {
             await sock.sendMessage(from, { 
-              text: menuText + footerText
+              text: menuText
             }, { quoted: m });
           }
         } catch (err: any) {
           console.error('Failed to send menu:', err);
-          await sock.sendMessage(from, { text: menuText + '\n\n🔗 JOIN CHANNEL: https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H\n🔗 JOIN SUPPORT: https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1' }, { quoted: m });
+          await sock.sendMessage(from, { text: menuText }, { quoted: m });
         }
         break;
 
@@ -402,7 +474,19 @@ export const processCommand = async (
       case '16':
       case '17':
       case '18':
-      case '19': {
+      case '19':
+      case '20':
+      case '21':
+      case '22':
+      case '23':
+      case '24':
+      case '25':
+      case '26':
+      case '27':
+      case '28':
+      case '29':
+      case '30':
+      case '31': {
         const submenusText: Record<string, string> = {
           '1': `──〔 🌐 MAIN MENU 〕──\n\n• .menu / .help / .allmenu - Display general menu list\n• .ping - Check application latency and system ping speed\n• .runtime / .uptime - Check active connection time elapsed\n• .alive - View connectivity heartbeats\n• .owner - Get developer and administrator keys (Daniel Musembi)\n• .script - Get official setup code repository\n• .support - Join the technical discussion help group\n• .donate [amount] - Back computational systems (+Reputation)\n• .rep / .reputation [@user] - Award trust points to peers\n• .announce [text] - Send verified representative alert`,
           '2': `──〔 🤖 AI MENU 〕──\n\n_Google Gemini artificial intelligence assistance_\n\n• .ai [prompt] - Conversational assistant (remembering context)\n• .transcribe - Transcribe voice message audio notes instantly\n• .speak [text] - High Definition PCM TTS voice synthesizer\n• .analyzedoc [name] - Smart csv/document data parser report\n• .bizplan [idea] - consultant-level five-point venture plan\n• .legal [text] - Elite counsel legal contract summarizer\n• .tutor [question] - Patient educator with analogy-based test\n• .createagent [name] [instructions] - Spawn custom bot node\n• .gpt [prompt] - High capabilities coder assistant logic\n• .imagine [prompt] - Text-to-image graphics model`,
@@ -421,13 +505,26 @@ export const processCommand = async (
           '16': `──〔 📢 CHANNEL & COMMUNITY 〕──\n\n_Control social community feeds, birthdays list, and events_\n\n• .channel / .subscribe / .unsubscribe - Join community channels\n• .post / .updates / .announcement - Broadcast controls\n• .poll / .reaction / .views / .followers - Feedback and insights\n• .birthday / .birthdays [name] [date] - Log/manage group anniversaries\n• .event [title] [date] - Event setup\n• .attendance - Class/Group roll-call checklist\n• .fundraise - Active tech crowdfunding status`,
           '17': `──〔 🛒 STORE, WALLET & ERP 〕──\n\n_Simulated digital wallet, credit loans, utility payments, and ERP ledger_\n\n• .wallet - View core balance, credit tier limits, and referral code\n• .balance - Check balance immediately\n• .deposit [amount] - Simulate safe payhero checkout deposit\n• .withdraw [amount] - Initiate micro cashouts\n• .send [@user] [amount] - instant user-to-user funds transfer\n• .borrow [amount] - Direct micro credit facility loan approvals\n• .payloan [amount] - Repay outstanding system loan balance\n• .paybill / .buyairtime / .buydata [target] [amount] - Utilities\n• .expense / .addexpense [amount] [category] [desc] - Expenditure reports\n• .save [amount] - Automated savings goal vault\n• .chama - Rotating group savings coordinator\n• .invest [index] - Invest/grow tokens\n• .crm / .customers - CRM panel\n• .appointment [time] - Session bookings\n• .staff [name] [role] - Employee listings\n• .invoice / .receipt [label] [price] - Auto invoice creator\n• .quotation [label] [price] - Instantly compiled business quota\n• .inventory - real-time inventory count\n• .sales - Core transaction logs\n• .bizreport - Unified corporate metrics performance dashboard\n• .shop / .products / .checkout / .cart / .orders - Store checkout`,
           '18': `──〔 📄 INFORMATION MENU 〕──\n\n_Legal policies, rules, and contact channels_\n\n• .rules / .terms / .privacy - Service guidelines\n• .faq / .about / .contact - Support channels\n• .report / .feedback / .bug / .version - Feedback forms`,
-          '19': `──〔 📁 CLOUD STORAGE & OS APPS 〕──\n\n_Personal cloud storage files vault and mini-apps runtime ecosystem_\n\n• .savefile / .upload [file] - Upload documents to AES-256 encrypted vault\n• .myfiles / .files - Manage/list stored cloud document attachments\n• .appstore / .install [app] - Access retro games, FX trading signals, campaigner\n• .businesscard / .card - Generate shareable dynamic NFC digital card\n• .game / .play - Play live multi-user interactive Chess or Blackjack\n• .signals / .trade - Real-time forex/crypto alerts forecasting signals\n• .bulksms [text] - Mass campaign promotional broadcast router`
+          '19': `──〔 📁 CLOUD STORAGE & OS APPS 〕──\n\n_Personal cloud storage files vault and mini-apps runtime ecosystem_\n\n• .savefile / .upload [file] - Upload documents to AES-256 encrypted vault\n• .myfiles / .files - Manage/list stored cloud document attachments\n• .appstore / .install [app] - Access retro games, FX trading signals, campaigner\n• .businesscard / .card - Generate shareable dynamic NFC digital card\n• .game / .play - Play live multi-user interactive Chess or Blackjack\n• .signals / .trade - Real-time forex/crypto alerts forecasting signals\n• .bulksms [text] - Mass campaign promotional broadcast router`,
+          '20': `──〔 🛠️ TOOLS MENU 〕──\n\n• .take / .fancy / .style - Text styling fonts\n• .readmore - Expandable spoilers\n• .obfuscate / .encode / .decode / .base64 / .binary / .hex - Cryptologies\n• .inspect / .json / .fetch / .upload / .server - Host network scripts`,
+          '21': `──〔 🔐 SECURITY MENU 〕──\n\n• .block / .unblock - User management\n• .antilink / .antibadword - Automatic filters\n• .mode [public/private] - Access levels`,
+          '22': `──〔 📊 BUSINESS MENU 〕──\n\n• .crm / .customers - CRM panel\n• .invoice / .receipt [label] [price] - Auto invoice creator\n• .quotation [label] [price] - Instantly compiled business quota`,
+          '23': `──〔 🧠 EDUCATION MENU 〕──\n\n• .study [course] - Select academic syllabus/lessons\n• .homework [question] - Ask active tutor solver\n• .quiz / .exam - Play interactive learning tests`,
+          '24': `──〔 🌐 TRANSLATION MENU 〕──\n\n• .translate [text] - Translate text to different languages`,
+          '25': `──〔 📱 STALK MENU 〕──\n\n• .igstalk / .ttstalk / .ghstalk / .ytstalk - Scrap profiling databases`,
+          '26': `──〔 🤖 AGENT MENU 〕──\n\n• .createagent [name] [instructions] - Spawn custom bot node`,
+          '27': `──〔 👑 OWNER MENU 〕──\n\n• .ban / .unban [@user] - Manage bot access rules\n• .broadcast [text] - Mass-send text across active group sessions`,
+          '28': `──〔 📢 CHANNEL MENU 〕──\n\n• .channel / .subscribe / .unsubscribe - Join community channels`,
+          '29': `──〔 🛒 STORE & WALLET 〕──\n\n• .wallet - View core balance\n• .shop / .products / .checkout / .cart / .orders - Store checkout`,
+          '30': `──〔 📁 CLOUD STORAGE 〕──\n\n• .savefile / .upload [file] - Upload documents to vault\n• .myfiles / .files - Manage stored files`,
+          '31': `──〔 ⭐ FAVOURITES 〕──\n\n• .addfav [command] - Add command to favourites\n• .fav - List favourites`
         };
 
         const listText = submenusText[command] || '⚠️ Menu not found.';
         await sock.sendMessage(from, { text: listText }, { quoted: m });
         break;
       }
+
       case '11': {
         const agentMenu = `──〔 🤖 MULTI-TENANT AI AGENT PLATFORM 〕──
 
@@ -2738,7 +2835,9 @@ An M-Pesa SIM ToolKit popup has been triggered directly on the phone *+${targetP
         // Unknown command
         break;
     }
+    await logCommandExecution(command, true, 'Success', sender);
   } catch (cmdError: any) {
+    await logCommandExecution(command, false, cmdError.message || 'Unknown error', sender);
     console.error(`Error in command processor for command [${command}]:`, cmdError.message || cmdError);
     try {
       await sock.sendMessage(from, { text: '⚠️ *System Alert:* An internal system timeout or error occurred. Your command request could not be processed. Please try again.' }, { quoted: m });

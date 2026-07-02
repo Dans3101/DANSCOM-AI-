@@ -8,9 +8,26 @@ import {
 } from '@whiskeysockets/baileys';
 import fs from 'fs';
 import path from 'path';
-import { sessionsDb, getIsFirestoreUsable, handleFirestoreError } from './firebase.js';
+import { sessionsDb, getIsFirestoreUsable, handleFirestoreError, commandLogsDb } from './firebase.js';
 
 const LOCAL_FALLBACK_DIR = path.join(process.cwd(), 'local_auth_fallback');
+
+export const logCommandExecution = async (command: string, success: boolean, result: string, sender: string) => {
+  if (getIsFirestoreUsable() && commandLogsDb) {
+    try {
+      await commandLogsDb.add({
+        command,
+        success,
+        result,
+        sender,
+        timestamp: new Date()
+      });
+    } catch (err: any) {
+      console.error('[FirestoreStore] logCommandExecution failed:', err.message);
+      handleFirestoreError(err);
+    }
+  }
+};
 
 export const useFirestoreAuthState = async (sessionId: string): Promise<{ state: AuthenticationState, saveCreds: () => Promise<void> }> => {
   const sessionFallbackDir = path.join(LOCAL_FALLBACK_DIR, sessionId);

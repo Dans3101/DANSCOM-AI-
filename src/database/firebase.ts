@@ -132,3 +132,4 @@ export const premiumDb = db ? db.collection('premium') : null;
 export const terminalsDb = db ? db.collection('terminals') : null;
 export const paymentsDb = db ? db.collection('payments') : null;
 export const agentsDb = db ? db.collection('agents') : null;
+export const commandLogsDb = db ? db.collection('commandLogs') : null;

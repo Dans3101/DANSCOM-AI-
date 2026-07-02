@@ -49,6 +49,7 @@ export const getPayheroConfig = () => {
   const channelId = process.env.PAYHERO_CHANNEL_ID || '1';
   const serviceId = process.env.PAYHERO_ACCOUNT_ID || '9178';
   const lipwaLink = process.env.PAYHERO_LIPWA_LINK || `https://lipwa.link/${serviceId}`;
+  const apiEndpoint = process.env.PAYHERO_API_ENDPOINT || 'https://backend.payhero.co.ke/v1/apps/express/new';
   
   // Custom sandbox flag
   const isSandbox = (process.env.PAYHERO_IS_SANDBOX === 'true') || !username || !password;
@@ -60,6 +61,7 @@ export const getPayheroConfig = () => {
     channelId,
     serviceId,
     lipwaLink,
+    apiEndpoint,
     isSandbox
   };
 };
@@ -246,7 +248,7 @@ export const initiateIntasendPayment = async (params: {
 
       const authHeader = 'Basic ' + Buffer.from(`${payhero.username}:${payhero.password}`).toString('base64');
       let apiResponse: any = null;
-      let usedEndpoint = 'https://backend.payhero.co.ke/api/v1/apps/express/new';
+      let usedEndpoint = payhero.apiEndpoint;
 
       try {
         console.log(`[PayHero] Initiating STK push via API endpoint: ${usedEndpoint}`);
@@ -258,20 +260,26 @@ export const initiateIntasendPayment = async (params: {
           timeout: 10000
         });
       } catch (firstErr: any) {
-        const errorMsg = firstErr.response?.data?.error_message || firstErr.response?.data?.message || firstErr.message || '';
-        // If the endpoint is not found or returns 404/Endpoint not found, fallback to the direct v1 path without /api/
-        if (errorMsg.includes('Endpoint not found') || firstErr.response?.status === 404) {
-          usedEndpoint = 'https://backend.payhero.co.ke/v1/apps/express/new';
-          console.log(`[PayHero Retry] Primary endpoint failed with 'Endpoint not found'. Retrying with: ${usedEndpoint}`);
-          apiResponse = await axios.post(usedEndpoint, payload, {
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': authHeader
-            },
-            timeout: 10000
-          });
+        // Try to fallback to a slightly different path
+        let fallbackEndpoint = usedEndpoint;
+        if (usedEndpoint.includes('/api/')) {
+            fallbackEndpoint = usedEndpoint.replace('/api/', '/');
         } else {
-          throw firstErr;
+            fallbackEndpoint = usedEndpoint.replace('backend.payhero.co.ke/', 'backend.payhero.co.ke/api/');
+        }
+        
+        if (fallbackEndpoint !== usedEndpoint) {
+            usedEndpoint = fallbackEndpoint;
+            console.log(`[PayHero Retry] Primary endpoint failed, retrying with: ${usedEndpoint}`);
+            apiResponse = await axios.post(usedEndpoint, payload, {
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': authHeader
+              },
+              timeout: 10000
+            });
+        } else {
+            throw firstErr;
         }
       }
 

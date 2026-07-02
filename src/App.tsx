@@ -29,7 +29,9 @@ import {
   CreditCard,
   Plus,
   Copy,
-  Check
+  Check,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import InstallPrompt from './components/InstallPrompt';
 import TerminalDashboardMetrics from './components/TerminalDashboardMetrics';
@@ -118,8 +120,87 @@ export default function App() {
   // --- TERMINAL MULTI-TENANCY STATES ---
   const [terminals, setTerminals] = useState<any[]>([]);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
+  const [isRestrictedView, setIsRestrictedView] = useState(false);
+  const [audioNotificationsEnabled, setAudioNotificationsEnabled] = useState(() => {
+    return localStorage.getItem('audioNotificationsEnabled') === 'true';
+  });
+  const [pairingFeatures, setPairingFeatures] = useState({
+    autoread: false,
+    chatbot: false,
+    anticall: false
+  });
+
+  const playNotificationSound = () => {
+    if (!audioNotificationsEnabled) return;
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.type = 'sine';
+    oscillator.frequency.value = 440; // Pitch
+    gainNode.gain.value = 0.1;
+
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.1);
+  };
+
+  useEffect(() => {
+    localStorage.setItem('audioNotificationsEnabled', String(audioNotificationsEnabled));
+  }, [audioNotificationsEnabled]);
+  
+  useEffect(() => {
+    // Detect standalone PWA mode and terminal query param
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+    const params = new URLSearchParams(window.location.search);
+    const terminalParam = params.get('terminal');
+    
+    if (isStandalone && terminalParam) {
+      setIsRestrictedView(true);
+      setActiveTerminalId(terminalParam);
+      localStorage.setItem('last_terminal', terminalParam);
+    } else {
+       const storedTerminal = localStorage.getItem('last_terminal');
+       if(storedTerminal) {
+         setActiveTerminalId(storedTerminal);
+       }
+    }
+  }, []);
+  
+  useEffect(() => {
+    const fetchLogs = async () => {
+        console.log('[App] Fetching logs...');
+        try {
+            const res = await fetch('/api/logs-data');
+            console.log('[App] Fetch response status:', res.status);
+            if (!res.ok) {
+                console.error('Failed to fetch logs, status:', res.status);
+                return;
+            }
+            const data = await res.json();
+            setCommandLogs(data);
+        } catch (err) {
+            console.error('Failed to fetch logs:', err);
+        }
+    };
+    fetchLogs();
+    const interval = setInterval(fetchLogs, 5000); // Poll every 5s
+    return () => clearInterval(interval);
+  }, []);
   const [terminalData, setTerminalData] = useState<any>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
 
   // Terminal Forms Creator States
   const [newTerminalId, setNewTerminalId] = useState('');
@@ -153,10 +234,15 @@ export default function App() {
   const [isActivatingStream, setIsActivatingStream] = useState(false);
   const [isTerminalQRInitializing, setIsTerminalQRInitializing] = useState(false);
   const [localPairingCode, setLocalPairingCode] = useState<string | null>(null);
+  const [localPairingCreatedAt, setLocalPairingCreatedAt] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [clientNameInput, setClientNameInput] = useState('');
   const [clientPhoneInput, setClientPhoneInput] = useState('');
+  const [countryCode, setCountryCode] = useState('');
   const [isDetailsSubmitted, setIsDetailsSubmitted] = useState(false);
+  const [commandLogs, setCommandLogs] = useState<any[]>([]);
+  const [logSearchTerm, setLogSearchTerm] = useState('');
+  const [logFilter, setLogFilter] = useState<'all' | 'success' | 'error'>('all');
 
   useEffect(() => {
     const safeFetch = async (url: string, options?: RequestInit) => {
@@ -286,7 +372,12 @@ export default function App() {
      const checkStatus = () => {
         safeFetch('/api/connection')
           .then(data => {
-            setConnection(data);
+            setConnection(prev => {
+              if (data.connected && !prev.connected) {
+                playNotificationSound();
+              }
+              return data;
+            });
             if (data.connected) {
                 setStatus('Online (DANSCOM Running)');
             }
@@ -328,7 +419,12 @@ export default function App() {
         safeFetch('/api/payments/transactions')
           .then(data => {
             if (Array.isArray(data)) {
-                setTransactions(data);
+                setTransactions(prev => {
+                  if (data.length > prev.length) {
+                    playNotificationSound();
+                  }
+                  return data;
+                });
             }
           })
           .catch(() => {});
@@ -577,6 +673,21 @@ export default function App() {
     }
   };
 
+  const handleRestartAllBots = async () => {
+    if (!window.confirm('Are you sure you want to restart all active bot sessions?')) return;
+    try {
+      const res = await fetch('/api/bots/restart-all', { method: 'POST' });
+      if (res.ok) {
+        alert('Restart request sent successfully');
+      } else {
+        alert('Failed to send restart request');
+      }
+    } catch (error) {
+      console.error('Restart all bots error:', error);
+      alert('Error sending restart request');
+    }
+  };
+
   const handleCreateTerminal = async () => {
     setCreateTerminalError(null);
     if (!newTerminalId.trim() || !newTerminalName.trim()) {
@@ -787,6 +898,7 @@ export default function App() {
         const data = await res.json();
         if (data.code) {
           setLocalPairingCode(data.code);
+          setLocalPairingCreatedAt(Date.now());
           setSessions(prev => {
             const exists = prev.some(s => s.sessionId === pairingViewSessionId);
             if (!exists) {
@@ -826,7 +938,8 @@ export default function App() {
         });
         
         // 2. Reflect on input
-        setPairingInputPhone(clientPhoneInput);
+        const fullNumber = countryCode.replace('+', '') + clientPhoneInput;
+        setPairingInputPhone(fullNumber);
         
         // 3. Start session on server
         await fetch('/api/sessions', {
@@ -841,7 +954,7 @@ export default function App() {
         const res = await fetch('/api/request-pairing', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ number: clientPhoneInput, sessionId: pairingViewSessionId })
+          body: JSON.stringify({ number: fullNumber, sessionId: pairingViewSessionId })
         });
         
         if (!res.ok) {
@@ -852,6 +965,7 @@ export default function App() {
         const data = await res.json();
         if (data.code) {
           setLocalPairingCode(data.code);
+          setLocalPairingCreatedAt(Date.now());
           setIsDetailsSubmitted(true);
           
           // Refresh sessions
@@ -943,10 +1057,21 @@ export default function App() {
                 </div>
 
                 <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5 label text-left">Country Code</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. 254"
+                    required
+                    value={countryCode}
+                    onChange={(e) => setCountryCode(e.target.value.replace(/[^0-9+]/g, ''))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono text-slate-900"
+                  />
+                </div>
+                <div>
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5 label text-left">WhatsApp Mobile Number</label>
                   <input 
                     type="text" 
-                    placeholder="e.g. 254712345678"
+                    placeholder="e.g. 712345678"
                     required
                     value={clientPhoneInput}
                     onChange={(e) => setClientPhoneInput(e.target.value.replace(/[^0-9]/g, ''))}
@@ -1040,20 +1165,45 @@ export default function App() {
                   <p className="text-[10px] text-slate-400 font-bold uppercase">Device connected</p>
                 </div>
               ) : (
-                <div className="flex-1 flex flex-col justify-center space-y-4 bg-slate-50/50 rounded-3xl border border-slate-100 p-6">
+                <div className="flex-1 flex flex-col justify-center space-y-4 bg-slate-50/50 rounded-3xl border border-slate-100 p-8">
                   {activeSessState?.pairingCode || localPairingCode ? (
-                    <div className="text-center space-y-3 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
-                      <label className="text-[9px] font-black text-slate-405 uppercase tracking-widest block leading-none">Your 8-Character Pin Key</label>
-                      <p className="text-3xl font-mono tracking-widest font-black text-indigo-600 select-all">{activeSessState?.pairingCode || localPairingCode}</p>
-                      <p className="text-[9px] text-slate-400 font-semibold leading-normal">Enter this pin on your WhatsApp Link with Phone Number screen.</p>
+                    <motion.div
+                      id="pairing-pin-container"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.5, ease: "easeOut" }}
+                      className="text-center space-y-4 p-6 bg-gradient-to-br from-white to-slate-50 rounded-3xl border border-slate-100 shadow-lg"
+                    >
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block leading-none">Your 8-Character Pin Key</label>
+                      <div className="flex items-center justify-center gap-3">
+                        <p className="text-4xl font-mono tracking-widest font-black text-slate-900 bg-white px-5 py-2 rounded-2xl select-all border border-slate-100 shadow-inner">
+                          {activeSessState?.pairingCode || localPairingCode}
+                        </p>
+                        <button 
+                          onClick={() => navigator.clipboard.writeText(activeSessState?.pairingCode || localPairingCode || '')}
+                          className="p-3 text-slate-400 hover:text-indigo-600 transition-colors bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md"
+                          title="Copy to clipboard"
+                        >
+                          <Copy className="w-5 h-5" />
+                        </button>
+                      </div>
+                      {localPairingCreatedAt && (
+                        <div className="flex items-center justify-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${Date.now() - localPairingCreatedAt > 300000 ? 'bg-red-500' : 'bg-emerald-500'}`}></span>
+                          <p className={`text-[10px] font-bold uppercase ${Date.now() - localPairingCreatedAt > 300000 ? 'text-red-500' : 'text-emerald-500'}`}>
+                             {Date.now() - localPairingCreatedAt > 300000 ? 'Expired' : 'Active'}
+                          </p>
+                        </div>
+                      )}
+                      <p className="text-[10px] text-slate-500 font-medium leading-relaxed max-w-xs mx-auto">Enter this pin on your WhatsApp "Link with Phone Number" screen to connect.</p>
                       <button
                         onClick={handleReqPairingCodeOnly}
                         disabled={isRequestingPairing}
-                        className="text-[9px] font-black uppercase text-indigo-600 hover:text-indigo-800 tracking-wider pt-1 hover:underline block mx-auto flex items-center gap-1 justify-center"
+                        className="text-[10px] font-black uppercase text-indigo-600 hover:text-indigo-800 tracking-wider pt-2 hover:underline block mx-auto flex items-center gap-1.5 justify-center"
                       >
-                        {isRequestingPairing ? <RefreshCw className="w-3 h-3 animate-spin" /> : '🔄 Request New PIN'}
+                        {isRequestingPairing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : '🔄 Request New PIN'}
                       </button>
-                    </div>
+                    </motion.div>
                   ) : (
                     <div className="space-y-4 text-center">
                       <div className="p-3 bg-indigo-50/55 rounded-2xl border border-indigo-100/30">
@@ -1385,10 +1535,26 @@ export default function App() {
             <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 border border-emerald-100/50 rounded-full">
               <span className="text-[9px] font-black text-emerald-700 uppercase tracking-wider">SECURE BOT TERMINAL</span>
             </div>
+            {deferredPrompt && (
+              <button
+                onClick={() => {
+                  deferredPrompt.prompt();
+                  deferredPrompt.userChoice.then((choiceResult: any) => {
+                    if (choiceResult.outcome === 'accepted') {
+                      setDeferredPrompt(null);
+                    }
+                  });
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-xl text-[10px] font-black text-indigo-700 uppercase tracking-wider transition-all"
+              >
+                <Smartphone className="w-3 h-3" />
+                Install
+              </button>
+            )}
           </div>
         </nav>
         <div className="px-8 md:px-12">
-          <TerminalDashboardMetrics terminalId={activeTerminalId!} sessions={sessions} transactions={transactions} />
+          <TerminalDashboardMetrics terminalId={activeTerminalId!} sessions={sessions} transactions={transactions} commandLogs={commandLogs} />
         </div>
 
         <div className="flex-1 max-w-5xl w-full mx-auto p-6 md:p-12 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -1592,29 +1758,29 @@ export default function App() {
                           </div>
 
                           {/* METHOD B: REQUEST PIN CODE */}
-                          <div className="p-5 bg-slate-50 border border-slate-200/70 rounded-3xl space-y-4 flex flex-col justify-between text-center">
+                          <div className="p-6 bg-gradient-to-br from-white to-slate-50 border border-slate-100 rounded-3xl space-y-4 flex flex-col justify-between text-center shadow-md">
                             <div className="space-y-1">
-                              <span className="text-[8px] bg-slate-900 text-white px-2 py-0.5 rounded font-black uppercase">METHOD B</span>
-                              <h4 className="text-xs font-black text-slate-850 uppercase mt-1">Numeric Pin</h4>
-                              <p className="text-[10px] text-slate-400 font-medium font-sans">Pairs with an 8-character token</p>
+                              <span className="text-[8px] bg-slate-900 text-white px-2 py-0.5 rounded font-black uppercase tracking-wider">Method B</span>
+                              <h4 className="text-xs font-black text-slate-800 uppercase mt-1">Numeric Pin</h4>
+                              <p className="text-[10px] text-slate-500 font-medium font-sans">Pairs with an 8-character token</p>
                             </div>
 
-                            <div className="flex-1 flex flex-col items-center justify-center p-4 bg-white rounded-2xl border border-slate-100">
+                            <div className="flex-1 flex flex-col items-center justify-center p-5 bg-white rounded-2xl border border-slate-100 shadow-inner">
                               {activeSessState?.pairingCode || terminalActiveSession?.pairingCode ? (
                                 <div className="space-y-2">
-                                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest block leading-none">Your Pairing PIN</label>
-                                  <p className="text-2xl font-mono tracking-widest font-black text-indigo-600 select-all">
+                                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block leading-none">Your Pairing PIN</label>
+                                  <p className="text-3xl font-mono tracking-widest font-black text-indigo-600 select-all">
                                     {activeSessState?.pairingCode || terminalActiveSession?.pairingCode}
                                   </p>
-                                  <p className="text-[8px] text-slate-400 leading-normal px-2">Type this numeric code on your phone when prompted.</p>
+                                  <p className="text-[9px] text-slate-400 leading-normal px-2">Type this numeric code on your phone when prompted.</p>
                                 </div>
                               ) : (
-                                <div className="py-8 space-y-3">
+                                <div className="py-6 space-y-3">
                                   <Smartphone className="w-8 h-8 text-indigo-400 mx-auto animate-pulse" />
                                   <button
                                     onClick={handleTerminalRequestPairingCode}
                                     disabled={isRequestingPairing}
-                                    className="py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-[9px] font-black uppercase text-white tracking-widest rounded-lg transition-all shadow-sm"
+                                    className="py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-[10px] font-black uppercase text-white tracking-widest rounded-xl transition-all shadow-md"
                                   >
                                     {isRequestingPairing ? 'Generating...' : '🔗 Request PIN'}
                                   </button>
@@ -1804,9 +1970,9 @@ export default function App() {
 
   // --- RENDERING MAIN DASHBOARD (OWNER / CREATOR PLATFORM) ---
   return (
-    <div className="min-h-screen w-full bg-slate-50 text-slate-900 font-sans overflow-x-hidden">
+    <div className="min-h-screen w-full bg-slate-950 text-slate-100 font-sans overflow-x-hidden">
       {/* Top Banner Status */}
-      <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between flex-shrink-0 select-none">
+      <header className="h-16 bg-slate-900 border-b border-slate-800 px-8 flex items-center justify-between flex-shrink-0 select-none">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black text-xs">
             📟
@@ -1868,6 +2034,32 @@ export default function App() {
                 </div>
 
                 <div className="space-y-4">
+                  {/* PWA Install Button */}
+                  {deferredPrompt && (
+                    <button
+                      onClick={() => {
+                        deferredPrompt.prompt();
+                      }}
+                      className="w-full py-3 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 font-bold text-[10px] uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2"
+                    >
+                      <Smartphone className="w-3.5 h-3.5" />
+                      Install Pairing App
+                    </button>
+                  )}
+
+                  {/* Feature Toggles */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {Object.entries(pairingFeatures).map(([key, value]) => (
+                      <button
+                        key={key}
+                        onClick={() => setPairingFeatures(prev => ({ ...prev, [key]: !value }))}
+                        className={`py-2 px-1 rounded-xl text-[9px] font-black uppercase tracking-wider border transition-all ${value ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+                      >
+                        {key}
+                      </button>
+                    ))}
+                  </div>
+
                   <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">WhatsApp Phone Number</label>
                     <input 
@@ -1996,118 +2188,143 @@ export default function App() {
 
       <div className="flex flex-1 overflow-x-hidden">
         {/* Sidebar */}
-        <aside className="w-64 bg-white border-r border-slate-200 p-6 flex flex-col gap-8 flex-shrink-0 overflow-y-auto">
-          <div>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4 select-none">Core Systems</p>
-            <ul className="space-y-1">
-              <li 
-                onClick={() => setActiveTab('dashboard')}
-                className={`flex items-center gap-3 text-sm font-bold p-2.5 rounded-xl border transition-all cursor-pointer select-none ${activeTab === 'dashboard' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
-              >
-                <LayoutDashboard className="w-4 h-4" />
-                Dashboard
-              </li>
-              <li 
-                onClick={() => setActiveTab('ai')}
-                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'ai' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
-              >
-                <Zap className="w-4 h-4 transition-transform group-hover/li:scale-110" />
-                AI Integrations
-                <ChevronRight className="w-3 h-3 ml-auto opacity-0 group-hover/li:opacity-100 transition-opacity" />
-              </li>
-              <li 
-                onClick={() => setActiveTab('plugins')}
-                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'plugins' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
-              >
-                <Puzzle className="w-4 h-4 transition-transform group-hover/li:scale-110" />
-                Plugin Manager
-              </li>
-              <li 
-                onClick={() => setActiveTab('console')}
-                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'console' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
-              >
-                <Terminal className="w-4 h-4 transition-transform group-hover/li:scale-110" />
-                Log Console
-              </li>
-              <li 
-                onClick={() => {
-                  setPairingSessionId('default_bot');
-                  setShowPairing(true);
-                }}
-                className="flex items-center gap-3 text-sm font-medium text-slate-500 hover:text-emerald-600 hover:bg-slate-50 transition-all cursor-pointer p-2.5 rounded-xl group/li mt-4 bg-slate-50/50 border border-slate-100 select-none"
-              >
-                <QrCode className="w-4 h-4 transition-transform group-hover/li:scale-110" />
-                Connect Bot
-                {connection.connected && <div className="ml-auto w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>}
-              </li>
-              <li 
-                onClick={() => setActiveTab('sessions')}
-                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'sessions' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
-              >
-                <Users className="w-4 h-4 transition-transform group-hover/li:scale-110" />
-                Active Sessions
-              </li>
-              <li 
-                onClick={() => setActiveTab('transactions')}
-                className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'transactions' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
-              >
-                <CreditCard className="w-4 h-4 transition-transform group-hover/li:scale-110" />
-                Payment Logs
-              </li>
-            </ul>
-          </div>
-          
-          <div>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4 select-none">Financials</p>
-            <div className="bg-slate-900 rounded-2xl p-4 text-white relative overflow-hidden group select-none">
-              <p className="text-[9px] uppercase font-bold opacity-50 tracking-wider font-sans">Automated Weekly Revenue</p>
-              <p className="text-xl font-black mt-1.5 tabular-nums">KES 12,850.00</p>
-              <div className="flex items-center gap-2 mt-3 overflow-hidden">
-                <span className="text-[9px] bg-white/10 rounded px-2 py-1 font-bold whitespace-nowrap">285 Terminals Active</span>
-              </div>
-              <div className="absolute -right-4 -bottom-4 w-16 h-16 bg-emerald-500 opacity-20 rounded-full blur-xl group-hover:scale-150 transition-transform" />
+        {!isRestrictedView && (
+          <aside className="w-64 bg-white border-r border-slate-200 p-6 flex flex-col gap-8 flex-shrink-0 overflow-y-auto">
+            <div>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4 select-none">Core Systems</p>
+              <ul className="space-y-1">
+                {deferredPrompt && (
+                  <li
+                    onClick={() => {
+                      deferredPrompt.prompt();
+                      deferredPrompt.userChoice.then((choiceResult: any) => {
+                        if (choiceResult.outcome === 'accepted') {
+                          setDeferredPrompt(null);
+                        }
+                      });
+                    }}
+                    className="flex items-center gap-3 text-sm font-bold p-2.5 rounded-xl border border-indigo-100 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-all cursor-pointer select-none mb-4"
+                  >
+                    <Smartphone className="w-4 h-4" />
+                    Install App
+                  </li>
+                )}
+                <li
+                  onClick={() => setAudioNotificationsEnabled(!audioNotificationsEnabled)}
+                  className={`flex items-center gap-3 text-sm font-bold p-2.5 rounded-xl border transition-all cursor-pointer select-none ${audioNotificationsEnabled ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+                >
+                  {audioNotificationsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                  {audioNotificationsEnabled ? 'Alerts ON' : 'Alerts OFF'}
+                </li>
+                <li 
+                  onClick={() => setActiveTab('dashboard')}
+                  className={`flex items-center gap-3 text-sm font-bold p-2.5 rounded-xl border transition-all cursor-pointer select-none ${activeTab === 'dashboard' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+                >
+                  <LayoutDashboard className="w-4 h-4" />
+                  Dashboard
+                </li>
+                <li 
+                  onClick={() => setActiveTab('ai')}
+                  className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'ai' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+                >
+                  <Zap className="w-4 h-4 transition-transform group-hover/li:scale-110" />
+                  AI Integrations
+                  <ChevronRight className="w-3 h-3 ml-auto opacity-0 group-hover/li:opacity-100 transition-opacity" />
+                </li>
+                <li 
+                  onClick={() => setActiveTab('plugins')}
+                  className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'plugins' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+                >
+                  <Puzzle className="w-4 h-4 transition-transform group-hover/li:scale-110" />
+                  Plugin Manager
+                </li>
+                <li 
+                  onClick={() => setActiveTab('console')}
+                  className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'console' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+                >
+                  <Terminal className="w-4 h-4 transition-transform group-hover/li:scale-110" />
+                  Log Console
+                </li>
+                <li 
+                  onClick={() => {
+                    setPairingSessionId('default_bot');
+                    setShowPairing(true);
+                  }}
+                  className="flex items-center gap-3 text-sm font-medium text-slate-500 hover:text-emerald-600 hover:bg-slate-50 transition-all cursor-pointer p-2.5 rounded-xl group/li mt-4 bg-slate-50/50 border border-slate-100 select-none"
+                >
+                  <QrCode className="w-4 h-4 transition-transform group-hover/li:scale-110" />
+                  Connect Bot
+                  {connection.connected && <div className="ml-auto w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>}
+                </li>
+                <li 
+                  onClick={() => setActiveTab('sessions')}
+                  className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'sessions' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+                >
+                  <Users className="w-4 h-4 transition-transform group-hover/li:scale-110" />
+                  Active Sessions
+                </li>
+                <li 
+                  onClick={() => setActiveTab('transactions')}
+                  className={`flex items-center gap-3 text-sm font-medium p-2.5 rounded-xl border transition-all cursor-pointer group/li select-none ${activeTab === 'transactions' ? 'text-emerald-600 bg-emerald-50 border-emerald-100/50' : 'text-slate-500 border-transparent hover:bg-slate-50'}`}
+                >
+                  <CreditCard className="w-4 h-4 transition-transform group-hover/li:scale-110" />
+                  Payment Logs
+                </li>
+              </ul>
             </div>
-          </div>
-
-          <div className="mt-auto pt-6 border-t border-slate-100 select-none space-y-4">
-            <div className="space-y-2">
-              <p className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider">Gateway Community</p>
-              <div className="flex flex-col gap-1.5">
-                <a
-                  href="https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H"
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  id="community-channel-btn"
-                  className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-indigo-50 hover:bg-indigo-100/80 border border-indigo-100 rounded-xl transition-all text-xs font-bold text-indigo-700 cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5">📢 Official Channel</span>
-                  <ChevronRight className="w-3 h-3 text-indigo-400" />
-                </a>
-                <a
-                  href="https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t"
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  id="community-group-btn"
-                  className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-100 rounded-xl transition-all text-xs font-bold text-emerald-700 cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5">💬 Support Group</span>
-                  <ChevronRight className="w-3 h-3 text-emerald-400" />
-                </a>
+            
+            <div>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4 select-none">Financials</p>
+              <div className="bg-slate-900 rounded-2xl p-4 text-white relative overflow-hidden group select-none">
+                <p className="text-[9px] uppercase font-bold opacity-50 tracking-wider font-sans">Automated Weekly Revenue</p>
+                <p className="text-xl font-black mt-1.5 tabular-nums">KES 12,850.00</p>
+                <div className="flex items-center gap-2 mt-3 overflow-hidden">
+                  <span className="text-[9px] bg-white/10 rounded px-2 py-1 font-bold whitespace-nowrap">285 Terminals Active</span>
+                </div>
+                <div className="absolute -right-4 -bottom-4 w-16 h-16 bg-emerald-500 opacity-20 rounded-full blur-xl group-hover:scale-150 transition-transform" />
               </div>
             </div>
 
-            <div className="flex items-center gap-3 p-3 border border-slate-100 rounded-2xl bg-slate-50 shadow-inner animate-pulse">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200" />
-              <div>
-                <p className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-1">Database</p>
-                <div className="flex items-center gap-1.5 font-mono">
-                  <Database className="w-3 h-3 text-slate-400" />
-                  <p className="text-[11px] font-bold text-slate-700">Firebase Ready</p>
+            <div className="mt-auto pt-6 border-t border-slate-100 select-none space-y-4">
+              <div className="space-y-2">
+                <p className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider">Gateway Community</p>
+                <div className="flex flex-col gap-1.5">
+                  <a
+                    href="https://whatsapp.com/channel/0029Vb7cIiCFcow5xMvqxs2H"
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    id="community-channel-btn"
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-indigo-50 hover:bg-indigo-100/80 border border-indigo-100 rounded-xl transition-all text-xs font-bold text-indigo-700 cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1.5">📢 Official Channel</span>
+                    <ChevronRight className="w-3 h-3 text-indigo-400" />
+                  </a>
+                  <a
+                    href="https://chat.whatsapp.com/Fn2XuWVDZPmCypETN9WCC1?mode=gi_t"
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    id="community-group-btn"
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-100 rounded-xl transition-all text-xs font-bold text-emerald-700 cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1.5">💬 Support Group</span>
+                    <ChevronRight className="w-3 h-3 text-emerald-400" />
+                  </a>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 p-3 border border-slate-100 rounded-2xl bg-slate-50 shadow-inner animate-pulse">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200" />
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-1">Database</p>
+                  <div className="flex items-center gap-1.5 font-mono">
+                    <Database className="w-3 h-3 text-slate-400" />
+                    <p className="text-[11px] font-bold text-slate-700">Firebase Ready</p>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        </aside>
+          </aside>
+        )}
 
         {/* Main Content Area */}
         <main className="flex-1 p-8 overflow-y-auto flex flex-col gap-8">
@@ -2192,9 +2409,18 @@ export default function App() {
 
               {/* Connected bot state list displays all terminals bots automatically! */}
               <div className="bg-white border border-slate-150/70 rounded-[2.5rem] p-8 space-y-6 shadow-sm">
-                <div>
-                  <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">System Deployments Network</h3>
-                  <p className="text-xs text-slate-400 font-medium">Both main and downstream terminal bots are rendered perfectly below</p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">System Deployments Network</h3>
+                    <p className="text-xs text-slate-400 font-medium">Both main and downstream terminal bots are rendered perfectly below</p>
+                  </div>
+                  <button
+                    onClick={handleRestartAllBots}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-emerald-700 transition-all font-sans"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Restart All Bots
+                  </button>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -2558,11 +2784,44 @@ export default function App() {
                 <p className="text-xs text-slate-400">Verifying real-time background automation process logs</p>
               </div>
 
+              <div className="flex gap-4 items-center bg-white p-4 rounded-2xl border border-slate-100">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                  <input 
+                    type="text" 
+                    placeholder="Search logs by command..."
+                    value={logSearchTerm}
+                    onChange={(e) => setLogSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  {(['all', 'success', 'error'] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setLogFilter(f)}
+                      className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all ${
+                        logFilter === f ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex-1 bg-slate-950 border border-slate-800 rounded-[2.5rem] p-6 font-mono text-slate-200 text-xs shadow-2xl h-[35rem] overflow-y-auto space-y-2 select-text">
-                <p className="text-slate-500 select-none">[System Bootstrap Server running successfully on PORT: 3000]</p>
-                <p className="text-slate-400 select-none">[Pay Hero multi-tenant microfinance listener initiated]</p>
-                <p className="text-slate-400 select-none">[Firestore dynamic state machine successfully configured]</p>
-                <p className="text-emerald-400 font-bold">[Active bot listener running. Ready to receive commands]</p>
+                {commandLogs.filter(log => {
+                    const matchesSearch = log.command.toLowerCase().includes(logSearchTerm.toLowerCase());
+                    const matchesFilter = logFilter === 'all' || 
+                                         (logFilter === 'success' && log.success) || 
+                                         (logFilter === 'error' && !log.success);
+                    return matchesSearch && matchesFilter;
+                }).map((log, i) => (
+                    <div key={i} className={log.success ? 'text-emerald-400' : 'text-rose-400'}>
+                        [{new Date(log.timestamp.seconds * 1000).toLocaleTimeString()}] {log.success ? 'SUCCESS' : 'ERROR'}: {log.command} - {log.result} (Sender: {log.sender})
+                    </div>
+                ))}
               </div>
             </div>
           ) : (

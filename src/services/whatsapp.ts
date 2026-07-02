@@ -46,6 +46,7 @@ export interface SessionInfo {
     qr: string | null;
     pairingCode: string | null;
     pairingNumber: string | null;
+    pairingCreatedAt?: number;
     isInitializing: boolean;
     user: { id: string; name: string } | null;
     connectionState?: 'open' | 'connecting' | 'close' | null;
@@ -192,6 +193,7 @@ export const requestPairingCode = async (number: string, sessionId: string = 'de
     try {
         const code = await sess.sock.requestPairingCode(sess.pairingNumber);
         sess.pairingCode = code || null;
+        sess.pairingCreatedAt = Date.now();
         console.log(`[Pairing ${sessionId}] Code received: ${code}`);
         return code;
     } catch (error: any) {
@@ -602,6 +604,11 @@ const startConnectionMonitor = () => {
         try {
             // 1. Maintain default_bot active
             let def = sessions.get('default_bot');
+            if (def && def.pairingCreatedAt && Date.now() - def.pairingCreatedAt > 48 * 60 * 60 * 1000) {
+                 console.log('[Connection Monitor] default_bot pairing code expired, deleting...');
+                 await deleteWhatsAppSession('default_bot').catch(() => {});
+                 def = undefined;
+            }
             if (!def) {
                 console.log('[Connection Monitor] default_bot session is missing, bringing it online...');
                 await startWhatsAppSession('default_bot').catch(() => {});
@@ -615,6 +622,11 @@ const startConnectionMonitor = () => {
             for (const sessId of activeDbSessions) {
                 if (sessId === 'default_bot') continue;
                 let sess = sessions.get(sessId);
+                if (sess && sess.pairingCreatedAt && Date.now() - sess.pairingCreatedAt > 48 * 60 * 60 * 1000) {
+                     console.log(`[Connection Monitor] Session [${sessId}] pairing code expired, deleting...`);
+                     await deleteWhatsAppSession(sessId).catch(() => {});
+                     sess = undefined;
+                }
                 if (!sess) {
                     console.log(`[Connection Monitor] Saved session [${sessId}] was missing from memory. Auto-loading...`);
                     await startWhatsAppSession(sessId).catch(() => {});

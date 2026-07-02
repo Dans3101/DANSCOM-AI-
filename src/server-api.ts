@@ -11,7 +11,7 @@ import {
   restartWhatsAppSession,
   restartWhatsApp
 } from './services/whatsapp.js';
-import { analyticsDb, usersDb, getIsFirestoreUsable } from './database/firebase.js';
+import { analyticsDb, usersDb, getIsFirestoreUsable, commandLogsDb } from './database/firebase.js';
 import { getCommandCount } from './utils/commandTracker.js';
 import { 
   getAllTerminals, 
@@ -39,7 +39,7 @@ app.use((req, res, next) => {
     try {
       const duration = Date.now() - startTime;
       const logLine = `[${new Date().toISOString()}] ${req.method} ${req.url} - Status: ${res.statusCode} - Origin: ${origin} - Host: ${host} - Duration: ${duration}ms - UA: ${ua}\n`;
-      fs.appendFileSync('api-requests.log', logLine);
+      // fs.appendFileSync('api-requests.log', logLine);
     } catch (e) {
       // Ignore log errors
     }
@@ -80,15 +80,19 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use((req, res, next) => {
+  console.log(`[API Server] Incoming Request: ${req.method} ${req.url}`);
+  next();
+});
 app.use(express.json());
 
 // Dynamic Rate Limiter: Apply a very high threshold to avoid blocking legitimate dashboard updates
-const apiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,
-  max: 10000, // Very relaxed allowance for high-frequency polling
-  validate: false
-});
-app.use('/api/', apiLimiter);
+// const apiLimiter = rateLimit({
+//   windowMs: 1 * 60 * 1000,
+//   max: 10000, // Very relaxed allowance for high-frequency polling
+//   validate: false
+// });
+// app.use('/api/', apiLimiter);
 
 // API Health check
 app.get('/api/health', async (req, res) => {
@@ -112,6 +116,24 @@ app.get('/api/health', async (req, res) => {
       payheroMode: 'sandbox',
       intasendMode: 'sandbox'
     });
+  }
+});
+
+app.get('/api/logs-data', async (req, res) => {
+  console.log('[API Logs] Fetching...');
+  if (!commandLogsDb || !getIsFirestoreUsable()) {
+    console.warn('[API Logs] Firestore not usable, returning dummy logs');
+    return res.json([{ id: 'dummy', command: 'test', success: true, result: 'test result', sender: 'test', timestamp: { seconds: Math.floor(Date.now() / 1000) } }]);
+  }
+  try {
+    console.log('[API Logs] Executing query...');
+    const snapshot = await commandLogsDb.orderBy('timestamp', 'desc').limit(100).get();
+    const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    console.log(`[API Logs] Found ${logs.length} logs`);
+    res.json(logs);
+  } catch (err) {
+    console.error('[API Logs] Error:', err);
+    res.status(500).json({ error: 'Failed to fetch logs' });
   }
 });
 
@@ -511,14 +533,15 @@ app.get('/api/payments/transactions', async (req, res) => {
 });
 
 // API 404 handler - MUST be before Vite/Static middleware
-app.use('/api/*', (req, res) => {
+app.use('/api/*', (req, res, next) => {
+  console.log(`[API Server] 404 Handler hit for: ${req.method} ${req.url}`);
   res.status(404).json({ error: 'API route not found' });
 });
 
 // Global application error boundary - returns JSON for any failures on API routes
 app.use((err: any, req: any, res: any, next: any) => {
   console.error('Unhandled Application Error:', err);
-  if (req.path && req.path.startsWith('/api')) {
+  if (req.path && (req.path.startsWith('/api') || req.path.startsWith('/logs'))) {
     return res.status(err.status || 500).json({ 
       error: 'Internal Server Error', 
       message: err.message || 'An unexpected error occurred' 

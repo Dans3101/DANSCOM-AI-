@@ -9,6 +9,10 @@ async function bootstrap() {
   const PORT = 3000;
 
   // Mount API endpoints from server-api
+  app.use((req, res, next) => {
+    console.log(`[Main Server] Request: ${req.method} ${req.url}`);
+    next();
+  });
   app.use(apiApp);
 
   // Vite middleware
