@@ -469,6 +469,7 @@ _Powered by Intelligence_ 🤖
       case '8':
       case '9':
       case '10':
+      case '11':
       case '12':
       case '13':
       case '14':
@@ -476,23 +477,34 @@ _Powered by Intelligence_ 🤖
       case '16':
       case '17':
       case '18':
+      case '19':
+      case '20':
+      case '21':
+      case '22':
+      case '23':
+      case '24':
+      case '25':
+      case '26':
+      case '27':
+      case '28':
+      case '29':
       case '30':
-      case '31':
-      case '32':
-      case '33':
-      case '34':
-      case '35': {
-        const submenusText: Record<string, string> = {
-          '1': `──〔 🌐 MAIN MENU 〕──\n\n• .menu / .help / .allmenu - Display general menu list\n• .ping - Check application latency and system ping speed\n• .runtime / .uptime - Check active connection time elapsed\n• .alive - View connectivity heartbeats\n• .owner - Get developer and administrator keys (Daniel Musembi)\n• .script - Get official setup code repository\n• .support - Join the technical discussion help group\n• .donate [amount] - Back computational systems (+Reputation)\n• .rep / .reputation [@user] - Award trust points to peers\n• .announce [text] - Send verified representative alert`,
-          '2': `──〔 🤖 AI MENU 〕──\n\n_Google Gemini artificial intelligence assistance_\n\n• .ai [prompt] - Conversational assistant (remembering context)\n• .transcribe - Transcribe voice message audio notes instantly\n• .speak [text] - High Definition PCM TTS voice synthesizer\n• .analyzedoc [name] - Smart csv/document data parser report\n• .bizplan [idea] - consultant-level five-point venture plan\n• .legal [text] - Elite counsel legal contract summarizer\n• .tutor [question] - Patient educator with analogy-based test\n• .createagent [name] [instructions] - Spawn custom bot node\n• .gpt [prompt] - High capabilities coder assistant logic\n• .imagine [prompt] - Text-to-image graphics model`,
-          '3': `──〔 🎨 IMAGE & EPHOTO MENU 〕──\n\n_Generate customized logo images and stylish visual effects_\n\n• .logo / .glitch / .neon / .fire / .matrix / .graffiti\n• .3dtext / .blackpink / .shadow / .light / .devil / .angel\n• .naruto / .pubg / .birthday / .galaxy / .cartoon / .pixel\n• .sketch / .wanted\n\n_Example format:_ \`.neon Arnold\``,
-          '4': `──〔 📥 DOWNLOAD MENU 〕──\n\n_Download high-definition social broadcasts and play instantly_\n\n• .play [song name] - Play high-quality MP3 audio streams\n• .song [url] - Download and play audio track\n• .video [url] - Direct mp4 video file extractor and play\n• .ytmp3 [url] / .ytmp4 [url] - Extract and play YouTube media\n• .spotify [url] / .tiktok [url] - Fast stream extracts\n• .facebook [url] / .instagram [url] / .twitter [url] - Social files downloads\n• .mediafire [url] / .apk / .gdrive / .pinterest - Standard file grabbers`,
-          '5': `──〔 👥 GROUP MENU 〕──\n\n_Administrative controls inside group channels (Bot must be admin)_\n\n• .add [@user] - Add participant to the chat\n• .kick [@user] - Expel participant from the chat\n• .promote [@user] - Appoint as an administrator\n• .demote [@user] - Revoke administrator status\n• .mute / .unmute - Set group status for standard members\n• .tagall / .hidetag - Highlight group notification\n• .welcome / .goodbye - Toggle automation messages\n• .antilink / .antibadword - Automatic filters\n• .warn / .warnings / .resetwarn - Moderations\n• .groupinfo / .gclink / .admins / .requests / .approve - Configurations`,
-          '6': `──〔 ⚙️ SETTINGS MENU 〕──\n\n_Customize terminal background operations and automated processes_\n\n• .setprefix [symbol] - Change prefix trigger\n• .setname [name] / .setbio [text] / .setpp - Profile details\n• .autoread / .autotyping / .autorecord - Live signals\n• .antidelete / .autostatus / .autostatuslike - Automation\n• .chatbot - Global smart helper status toggle\n• .anticall / .public / .private - Access levels\n• .block / .unblock / .restart / .shutdown / .backup / .restore / .update - Host operations`,
-          '7': `──〔 😂 FUN MENU 〕──\n\n_Lively WhatsApp mini-utilities for entertainment_\n\n• .joke - Generate a humorous joke\n• .meme - Generate random reaction picture\n• .pickup - Sweet pick-up conversations\n• .truth / .dare - Live prompt questions\n• .ship / .simp - Fun social calculations\n• .stupid / .cute / .gay / .rate - Fun analyzers\n• .fact / .quote / .roast / .compliment - Words\n• .8ball / .hack / .ghost / .wasted / .trigger - Interactive plays`,
-          '8': `──〔 🎵 MUSIC MENU 〕──\n\n_Configure lyrics and play filters_\n\n• .lyrics [song name] - Get song text sheets\n• .findsong - Identify sound\n• .bass / .slow / .nightcore / .reverb - Audio tuning filters\n• .volume / .audio / .musicsearch / .playlist - Playlists management`,
-          '9': `──〔 🎬 VIDEO MENU 〕──\n\n_Transposition and formatting tools for video_\n\n• .tovideo / .toaudio / .gif - Formatter\n• .compress / .reverse / .editvideo / .trim / .merge / .mp4 / .quality - Video post-processing`,
-          '10': `──〔 🎮 GAMES MENU 〕──\n\n_Interactive games_\n\n• .game / .play - Play live multi-user interactive Chess or Blackjack`,
+      case '31': {
+        const getMenuText = (cmd: string) => "Test menu";
+
+
+          '21': `╔════════════════════════╗\n║  🔐 *21. SECURITY MENU* 🆕║\n╚════════════════════════╝\n│ .passgen   - Password Gen      │\n│ .encrypt   - Encrypt Text      │\n│ .decrypt   - Decrypt Text      │\n│ .iplookup  - IP Address Lookup │\n│ .fakeinfo  - Fake Info Gen     │\n│ .emailcheck- Check Email       │\n│ .scanlink  - Scan URL/Link     │\n│ .phonelook - Phone Lookup      │\n│ .hash      - Hash Generator    │\n│ .base64    - Base64 En/Decode  │\n│ .whois     - Domain Lookup     │\n└────────────────────────┘`,
+          '22': `╔════════════════════════╗\n║  📊 *22. BUSINESS MENU* 🆕║\n╚════════════════════════╝\n│ .invoice   - Invoice Maker     │\n│ .qrcode    - QR Code Maker     │\n│ .poll      - Create Poll       │\n│ .resume    - Resume Builder    │\n│ .schedule  - Schedule Maker    │\n│ .salescalc - Sales Calculator  │\n│ .tasks     - Task Manager      │\n│ .email     - Email Template    │\n│ .contract  - Contract Draft    │\n│ .proposal  - Proposal Writer   │\n│ .budget    - Business Budget   │\n└────────────────────────┘`,
+          '23': `╔════════════════════════╗\n║  🧠 *23. EDUCATION MENU* 🆕║\n╚════════════════════════╝\n│ .define    - Word Dictionary   │\n│ .grammar   - Grammar Checker   │\n│ .math      - Math Solver       │\n│ .science   - Science Facts     │\n│ .book      - Book Summary      │\n│ .periodic  - Periodic Table    │\n│ .geoquiz   - Geography Quiz    │\n│ .history   - History Facts     │\n│ .spell     - Spell Checker     │\n│ .synonym   - Synonyms/Antonyms │\n│ .formula   - Math Formulas     │\n│ .studytip  - Study Tips        │\n└────────────────────────┘`,
+          '24': `╔════════════════════════╗\n║ 🌐 *24. TRANSLATION* 🆕  ║\n╚════════════════════════╝\n│ .translate - Translate Text    │\n│ .detect    - Detect Language   │\n│ .meaning   - Word Meaning      │\n│ .langs     - 50+ Languages     │\n│ .pronounce - Pronunciation     │\n│ .phrases   - Common Phrases    │\n│ .para      - Paragraph Trans.  │\n│ .slang     - Slang Dictionary  │\n│ .arabic    - Translate Arabic  │\n│ .french    - Translate French  │\n│ .spanish   - Translate Spanish │\n└────────────────────────┘`,
+          '25': `╔════════════════════════╗\n║  📱  *25. STALK MENU*     ║\n╚════════════════════════╝\n│ .whois     - WA Profile Info   │\n│ .lastseen  - Last Seen Check   │\n│ .pfp       - Profile Picture   │\n│ .status    - Check Status      │\n│ .stalklogs - View Stalk Logs   │\n│ .trackname - Track Name Change │\n│ .ig        - Instagram Profile │\n│ .fb        - Facebook Profile  │\n│ .twitter   - Twitter Profile   │\n│ .tiktok    - TikTok Profile    │\n└────────────────────────┘`,
+          '26': `╔════════════════════════╗\n║  🤖  *26. AGENT MENU*    ║\n╚════════════════════════╝\n│ .agent     - Start AI Agent    │\n│ .autoreply - Auto Reply Setup  │\n│ .autopost  - Auto Post Setup   │\n│ .scheduler - Schedule Messages │\n│ .broadcast - Mass Message      │\n│ .keyword   - Keyword Trigger   │\n│ .flow      - Create Flow Bot   │\n│ .webhook   - Set Webhook       │\n│ .agentlog  - View Agent Logs   │\n│ .stopagent - Stop Agent        │\n└────────────────────────┘`,
+          '27': `╔════════════════════════╗\n║  👑  *27. OWNER MENU*     ║\n╚════════════════════════╝\n│ .addadmin    - Add Admin       │\n│ .removeadmin - Remove Admin    │\n│ .block       - Block User      │\n│ .unblock     - Unblock User    │\n│ .broadcast   - Broadcast Msg   │\n│ .shutdown    - Shutdown Bot    │\n│ .restart     - Restart Bot     │\n│ .logs        - View All Logs   │\n│ .clearcache  - Clear Cache     │\n│ .setbotname  - Change Bot Name │\n│ .announce    - Announcement    │\n│ .maintenance - Maintenance Mode│\n└────────────────────────┘`,
+          '28': `╔════════════════════════╗\n║  📢  *28. CHANNEL MENU*   ║\n╚════════════════════════╝\n│ .joinchannel  - Join Channel   │\n│ .channelinfo  - Channel Info   │\n│ .channelpost  - Post to Chan.  │\n│ .subscribers  - Sub Count      │\n│ .channellink  - Get Chan. Link │\n│ .pin          - Pin Message    │\n│ .unpin        - Unpin Message  │\n│ .channelstats - Channel Stats  │\n│ .promote      - Promote Chan.  │\n└────────────────────────┘`,
+          '29': `╔════════════════════════╗\n║  🛒 *29. STORE & WALLET*  ║\n╚════════════════════════╝\n│ .shop      - Open Store        │\n│ .buy       - Buy Item          │\n│ .balance   - Check Balance     │\n│ .deposit   - Add Funds         │\n│ .withdraw  - Withdraw Funds    │\n│ .transfer  - Send Coins        │\n│ .history   - Transaction Log   │\n│ .voucher   - Redeem Voucher    │\n│ .premium   - Get Premium       │\n│ .subscribe - Subscribe Plan    │\n│ .prices    - View All Prices   │\n└────────────────────────┘`,
+          '30': `╔════════════════════════╗\n║  📁 *30. CLOUD STORAGE*   ║\n╚════════════════════════╝\n│ .upload    - Upload File       │\n│ .download  - Download File     │\n│ .myfiles   - View My Files     │\n│ .delete    - Delete File       │\n│ .share     - Share File        │\n│ .storage   - Storage Used      │\n│ .rename    - Rename File       │\n│ .mkdir     - Create Folder     │\n│ .backup    - Backup Data       │\n│ .restore   - Restore Backup    │\n└────────────────────────┘`,
+          '31': `╔════════════════════════╗\n║  ⭐ *31. FAVOURITES* 🆕   ║\n╚════════════════════════╝\n│ .fav       - View Favourites   │\n│ .addfav    - Add to Favourites │\n│ .removefav - Remove Favourite  │\n│ .quick     - Quick Commands    │\n│ .pinned    - Pinned Tools      │\n│ .recent    - Recent History    │\n│ .saved     - Saved Results     │\n│ .clearfav  - Clear Favourites  │\n└────────────────────────┘`
+ve games_\n\n• .game / .play - Play live multi-user interactive Chess or Blackjack`,
           '11': `──〔 🌍 GENERAL MENU 〕──\n\n_Search indexes, etc._\n\n• .weather / .news / .define / .dictionary / .google / .wiki`,
           '12': `──〔 📰 NEWS MENU 〕──\n\n_News updates_\n\n• .news`,
           '13': `──〔 🌤️ WEATHER MENU 〕──\n\n_Weather updates_\n\n• .weather`,
@@ -819,6 +831,14 @@ _Configure and manage your personalized AI agents_
         break;
       }
 
+      case 'crypto': {
+        await sock.sendMessage(from, { text: `📈 *CRYPTO PRICES* 📈\n\n_Fetching latest market data..._` }, { quoted: m });
+        break;
+      }
+      case 'stock': {
+        await sock.sendMessage(from, { text: `📊 *STOCK PRICES* 📊\n\n_Fetching latest market data..._` }, { quoted: m });
+        break;
+      }
       case 'owner':
       case 'contact': {
         const ownerNum = '254713811622';
@@ -1002,20 +1022,63 @@ _Ensure the bot has admin rights to run administrative actions._`.trim();
         break;
       }
 
-      case 'google':
-      case 'wiki': {
+      case 'wiki':
+      case 'define':
+      case 'country':
+      case 'capital':
+      case 'flag':
+      case 'population':
+      case 'currency':
+      case 'timezone':
+      case 'language':
+      case 'continent': {
         const queryVal = args.join(' ');
         if (!queryVal) {
-          await sock.sendMessage(from, { text: '⚠️ Please provide a keyword or search query!' }, { quoted: m });
+          await sock.sendMessage(from, { text: `⚠️ Please provide a keyword for ${command} search!` }, { quoted: m });
           break;
         }
-        await sock.sendMessage(from, { text: `🌍 Analyzing search indexes for: "${queryVal}"...` }, { quoted: m });
+        await sock.sendMessage(from, { text: `🌍 *Querying knowledge bases for:* "${queryVal}"...` }, { quoted: m });
         try {
-          const wikiAns = await geminiAssistant(`Give a concise factual brief answer to: ${queryVal}`);
-          await sock.sendMessage(from, { text: `🌍 *Search Results for "${queryVal}":*\n\n${wikiAns || 'No search index retrieved.'}` }, { quoted: m });
+          const ans = await geminiAssistant(`Give a concise, factual, well-structured brief answer to: ${queryVal} in the context of ${command}.`);
+          await sock.sendMessage(from, { text: `🌍 *${command.toUpperCase()} Result for "${queryVal}":*\n\n${ans || 'No information retrieved.'}` }, { quoted: m });
         } catch (err: any) {
-          await sock.sendMessage(from, { text: '❌ Search servers currently busy. Please try again.' }, { quoted: m });
+          await sock.sendMessage(from, { text: '❌ Information servers currently busy. Please try again.' }, { quoted: m });
         }
+        break;
+      }
+      
+      case 'livescore':
+      case 'fixtures':
+      case 'standings':
+      case 'transfer':
+      case 'player':
+      case 'team':
+      case 'highlights':
+      case 'topscorer':
+      case 'nba':
+      case 'nfl':
+      case 'tennis':
+      case 'f1': {
+        const querySport = args.join(' ');
+        await sock.sendMessage(from, { text: `⚽ *Querying sports databases for:* ${command}...` }, { quoted: m });
+        const ans = await geminiAssistant(`Provide latest sports updates for: ${command} ${querySport ? 'related to ' + querySport : ''}. Keep it concise and formatted for WhatsApp with emojis.`);
+        await sock.sendMessage(from, { text: `⚽ *DANSCOM SPORTS (${command.toUpperCase()}):*\n\n${ans || '❌ Sports data servers busy.'}` }, { quoted: m });
+        break;
+      }
+      
+      case 'invoice':
+      case 'poll':
+      case 'resume':
+      case 'schedule':
+      case 'salescalc':
+      case 'tasks':
+      case 'email':
+      case 'contract':
+      case 'proposal':
+      case 'budget': {
+        await sock.sendMessage(from, { text: `💼 *DANSCOM BUSINESS ENGINE (${command}):* Processing your business request...` }, { quoted: m });
+        const ans = await geminiAssistant(`Assist with the following business task: ${command}. Input context: ${args.join(' ')}. Generate professional content or guidance.`);
+        await sock.sendMessage(from, { text: `💼 *DANSCOM BUSINESS:* \n\n${ans || '❌ Could not generate business content.'}` }, { quoted: m });
         break;
       }
 

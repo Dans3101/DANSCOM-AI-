@@ -93,11 +93,21 @@ export const getExistingSessions = async (): Promise<string[]> => {
     // In rare cases where the container starts entirely fresh with no disk mount but Firestore still contains active credentials,
     // we query ONLY the credentials keys directly rather than performing a heavy collection-wide scan.
     const isReady = await firestoreReadyPromise;
-    if (sessionIds.size <= 1 && sessionsDb && isReady && getIsFirestoreUsable()) {
+    if (sessionsDb && isReady && getIsFirestoreUsable()) {
         try {
             console.log('[Firestore getExistingSessions fallback] Initializing light credentials key lookup...');
-            // Since we know the schema format is `${sessionId}_creds`, we can fetch records prefixed with a potential session list or a fast range scan if required,
-            // but normally checking local filesystem state is fully sufficient and avoids exhausting Firestore limits.
+            const snapshot = await sessionsDb.get();
+            snapshot.forEach(doc => {
+                const id = doc.id;
+                // Session data in Firestore is saved with keys like `${sessionId}_creds`
+                if (id.endsWith('_creds')) {
+                    const sessionId = id.replace('_creds', '');
+                    if (sessionId && sessionId !== 'default_bot') {
+                        sessionIds.add(sessionId);
+                    }
+                }
+            });
+            console.log(`[Firestore getExistingSessions fallback] Found ${sessionIds.size} sessions in Firestore.`);
         } catch (e: any) {
             console.warn('[Firestore light list fallback failed]:', e.message);
             handleFirestoreError(e);
