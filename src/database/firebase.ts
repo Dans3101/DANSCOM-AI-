@@ -35,9 +35,11 @@ export const handleFirestoreError = (err: any) => {
     msg.includes('unavailable') ||
     msg.includes('resource exhausted')
   ) {
-    console.error(`[Firebase] Crucial Quota/Resource Exhausted or Timeout Error Triggered! Disabling Firestore for 1 hour to protect server performance. Error:`, err.message);
-    isFirestoreUsable = false;
-    firestoreDisabledUntil = Date.now() + 86400000; // 24 hours
+    if (isFirestoreUsable) {
+        console.warn(`[Firebase] Firestore Resource Issue detected (Quota/Timeout). Disabling Firestore for 1 hour. Error:`, err.message);
+        isFirestoreUsable = false;
+        firestoreDisabledUntil = Date.now() + 3600000; // 1 hour
+    }
   }
 };
 

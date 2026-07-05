@@ -2,6 +2,7 @@ import { WASocket, proto } from '@whiskeysockets/baileys';
 import { setFeature, isEnabled } from '../utils/settings.js';
 import { incrementCommandCount } from '../utils/commandTracker.js';
 import { logCommandExecution } from '../database/firestoreStore.js';
+import { getUser, updateUser } from '../database/userStore.js';
 import { geminiAssistant } from '../services/gemini.js';
 import { downloadMediaBuffer } from '../utils/mediaUtils.js';
 import { analyticsDb, premiumDb, contactsDb, usersDb, sessionsDb, agentsDb, getIsFirestoreUsable } from '../database/firebase.js';
@@ -291,6 +292,19 @@ export const processCommand = async (
 ) => {
   const { sender } = context;
   const from = m.key.remoteJid!;
+
+  // User management check
+  const user = await getUser(sender);
+  if (user?.isBlocked) {
+    await sock.sendMessage(from, { text: '❌ *Access Denied:* You have been blocked from using this bot.' }, { quoted: m });
+    return;
+  }
+  
+  // Update last seen and usage count
+  await updateUser(sender, { 
+    lastSeen: new Date().toISOString(),
+    usageCount: (user?.usageCount || 0) + 1
+  });
   
   // Delegate to the advanced multi-purpose ecosystem systems module
   try {
@@ -486,56 +500,53 @@ _Powered by Intelligence_ 🤖
       case '25':
       case '26':
       case '27':
+      case '1':
+      case '2':
+      case '3':
+      case '4':
+      case '5':
+      case '6':
+      case '7':
+      case '8':
+      case '9':
+      case '10':
+      case '11':
+      case '12':
+      case '13':
+      case '14':
+      case '15':
+      case '16':
+      case '17':
+      case '18':
+      case '19':
+      case '20':
+      case '21':
+      case '22':
+      case '23':
+      case '24':
+      case '25':
+      case '26':
+      case '27':
       case '28':
       case '29':
       case '30':
       case '31': {
-        const getMenuText = (cmd: string) => "Test menu";
-
-
+        const menus: { [key: string]: string } = {
           '21': `╔════════════════════════╗\n║  🔐 *21. SECURITY MENU* 🆕║\n╚════════════════════════╝\n│ .passgen   - Password Gen      │\n│ .encrypt   - Encrypt Text      │\n│ .decrypt   - Decrypt Text      │\n│ .iplookup  - IP Address Lookup │\n│ .fakeinfo  - Fake Info Gen     │\n│ .emailcheck- Check Email       │\n│ .scanlink  - Scan URL/Link     │\n│ .phonelook - Phone Lookup      │\n│ .hash      - Hash Generator    │\n│ .base64    - Base64 En/Decode  │\n│ .whois     - Domain Lookup     │\n└────────────────────────┘`,
           '22': `╔════════════════════════╗\n║  📊 *22. BUSINESS MENU* 🆕║\n╚════════════════════════╝\n│ .invoice   - Invoice Maker     │\n│ .qrcode    - QR Code Maker     │\n│ .poll      - Create Poll       │\n│ .resume    - Resume Builder    │\n│ .schedule  - Schedule Maker    │\n│ .salescalc - Sales Calculator  │\n│ .tasks     - Task Manager      │\n│ .email     - Email Template    │\n│ .contract  - Contract Draft    │\n│ .proposal  - Proposal Writer   │\n│ .budget    - Business Budget   │\n└────────────────────────┘`,
           '23': `╔════════════════════════╗\n║  🧠 *23. EDUCATION MENU* 🆕║\n╚════════════════════════╝\n│ .define    - Word Dictionary   │\n│ .grammar   - Grammar Checker   │\n│ .math      - Math Solver       │\n│ .science   - Science Facts     │\n│ .book      - Book Summary      │\n│ .periodic  - Periodic Table    │\n│ .geoquiz   - Geography Quiz    │\n│ .history   - History Facts     │\n│ .spell     - Spell Checker     │\n│ .synonym   - Synonyms/Antonyms │\n│ .formula   - Math Formulas     │\n│ .studytip  - Study Tips        │\n└────────────────────────┘`,
           '24': `╔════════════════════════╗\n║ 🌐 *24. TRANSLATION* 🆕  ║\n╚════════════════════════╝\n│ .translate - Translate Text    │\n│ .detect    - Detect Language   │\n│ .meaning   - Word Meaning      │\n│ .langs     - 50+ Languages     │\n│ .pronounce - Pronunciation     │\n│ .phrases   - Common Phrases    │\n│ .para      - Paragraph Trans.  │\n│ .slang     - Slang Dictionary  │\n│ .arabic    - Translate Arabic  │\n│ .french    - Translate French  │\n│ .spanish   - Translate Spanish │\n└────────────────────────┘`,
           '25': `╔════════════════════════╗\n║  📱  *25. STALK MENU*     ║\n╚════════════════════════╝\n│ .whois     - WA Profile Info   │\n│ .lastseen  - Last Seen Check   │\n│ .pfp       - Profile Picture   │\n│ .status    - Check Status      │\n│ .stalklogs - View Stalk Logs   │\n│ .trackname - Track Name Change │\n│ .ig        - Instagram Profile │\n│ .fb        - Facebook Profile  │\n│ .twitter   - Twitter Profile   │\n│ .tiktok    - TikTok Profile    │\n└────────────────────────┘`,
-          '26': `╔════════════════════════╗\n║  🤖  *26. AGENT MENU*    ║\n╚════════════════════════╝\n│ .agent     - Start AI Agent    │\n│ .autoreply - Auto Reply Setup  │\n│ .autopost  - Auto Post Setup   │\n│ .scheduler - Schedule Messages │\n│ .broadcast - Mass Message      │\n│ .keyword   - Keyword Trigger   │\n│ .flow      - Create Flow Bot   │\n│ .webhook   - Set Webhook       │\n│ .agentlog  - View Agent Logs   │\n│ .stopagent - Stop Agent        │\n└────────────────────────┘`,
-          '27': `╔════════════════════════╗\n║  👑  *27. OWNER MENU*     ║\n╚════════════════════════╝\n│ .addadmin    - Add Admin       │\n│ .removeadmin - Remove Admin    │\n│ .block       - Block User      │\n│ .unblock     - Unblock User    │\n│ .broadcast   - Broadcast Msg   │\n│ .shutdown    - Shutdown Bot    │\n│ .restart     - Restart Bot     │\n│ .logs        - View All Logs   │\n│ .clearcache  - Clear Cache     │\n│ .setbotname  - Change Bot Name │\n│ .announce    - Announcement    │\n│ .maintenance - Maintenance Mode│\n└────────────────────────┘`,
-          '28': `╔════════════════════════╗\n║  📢  *28. CHANNEL MENU*   ║\n╚════════════════════════╝\n│ .joinchannel  - Join Channel   │\n│ .channelinfo  - Channel Info   │\n│ .channelpost  - Post to Chan.  │\n│ .subscribers  - Sub Count      │\n│ .channellink  - Get Chan. Link │\n│ .pin          - Pin Message    │\n│ .unpin        - Unpin Message  │\n│ .channelstats - Channel Stats  │\n│ .promote      - Promote Chan.  │\n└────────────────────────┘`,
-          '29': `╔════════════════════════╗\n║  🛒 *29. STORE & WALLET*  ║\n╚════════════════════════╝\n│ .shop      - Open Store        │\n│ .buy       - Buy Item          │\n│ .balance   - Check Balance     │\n│ .deposit   - Add Funds         │\n│ .withdraw  - Withdraw Funds    │\n│ .transfer  - Send Coins        │\n│ .history   - Transaction Log   │\n│ .voucher   - Redeem Voucher    │\n│ .premium   - Get Premium       │\n│ .subscribe - Subscribe Plan    │\n│ .prices    - View All Prices   │\n└────────────────────────┘`,
-          '30': `╔════════════════════════╗\n║  📁 *30. CLOUD STORAGE*   ║\n╚════════════════════════╝\n│ .upload    - Upload File       │\n│ .download  - Download File     │\n│ .myfiles   - View My Files     │\n│ .delete    - Delete File       │\n│ .share     - Share File        │\n│ .storage   - Storage Used      │\n│ .rename    - Rename File       │\n│ .mkdir     - Create Folder     │\n│ .backup    - Backup Data       │\n│ .restore   - Restore Backup    │\n└────────────────────────┘`,
+          '26': `╔════════════════════════╗\n║  🤖  *26. AGENT MENU*    ║\n╚════════════════════════╝\n│ .agent     - Start AI Agent    │\n│ .autoreply - Auto Reply Setup  │\n│ .autopost  - Auto Post Setup   │\n│ .scheduler - Schedule Messages │\n│ .broadcast - Mass Message      │\n│ .keyword   - Keyword Trigger   │\n│ .flow      - Create Flow Bot   │\n│ .webhook   - Set Webhook       │\n│ .agentlog  -        break;
+      }  │\n│ .storage   - Storage Used      │\n│ .rename    - Rename File       │\n│ .mkdir     - Create Folder     │\n│ .backup    - Backup Data       │\n│ .restore   - Restore Backup    │\n└────────────────────────┘`,
           '31': `╔════════════════════════╗\n║  ⭐ *31. FAVOURITES* 🆕   ║\n╚════════════════════════╝\n│ .fav       - View Favourites   │\n│ .addfav    - Add to Favourites │\n│ .removefav - Remove Favourite  │\n│ .quick     - Quick Commands    │\n│ .pinned    - Pinned Tools      │\n│ .recent    - Recent History    │\n│ .saved     - Saved Results     │\n│ .clearfav  - Clear Favourites  │\n└────────────────────────┘`
-ve games_\n\n• .game / .play - Play live multi-user interactive Chess or Blackjack`,
-          '11': `──〔 🌍 GENERAL MENU 〕──\n\n_Search indexes, etc._\n\n• .weather / .news / .define / .dictionary / .google / .wiki`,
-          '12': `──〔 📰 NEWS MENU 〕──\n\n_News updates_\n\n• .news`,
-          '13': `──〔 🌤️ WEATHER MENU 〕──\n\n_Weather updates_\n\n• .weather`,
-          '14': `──〔 📄 INFORMATION MENU 〕──\n\n_Info_\n\n• .faq / .about / .contact`,
-          '15': `──〔 ⚽ SPORTS MENU 〕──\n\n_Sports_\n\n• .football / .match / .score`,
-          '16': `──〔 🧘 HEALTH MENU 〕──\n\n_Health_\n\n• .health`,
-          '17': `──〔 🍔 FOOD MENU 〕──\n\n_Food_\n\n• .food`,
-          '18': `──〔 🗺️ TRAVEL MENU 〕──\n\n_Travel_\n\n• .travel`,
-          '19': `──〔 💰 FINANCE MENU 〕──\n\n_Finance_\n\n• .wallet / .balance`,
-          '20': `──〔 🛠️ TOOLS MENU 〕──\n\n• .take / .fancy / .style / .readmore / .obfuscate / .encode / .decode`,
-          '21': `──〔 🔐 SECURITY MENU 〕──\n\n• .block / .unblock / .antilink / .antibadword / .mode`,
-          '22': `──〔 📊 BUSINESS MENU 〕──\n\n• .crm / .customers / .invoice / .receipt / .quotation`,
-          '23': `──〔 🧠 EDUCATION MENU 〕──\n\n• .study / .homework / .quiz / .exam`,
-          '24': `──〔 🌐 TRANSLATION MENU 〕──\n\n• .translate`,
-          '25': `──〔 📱 STALK MENU 〕──\n\n• .igstalk / .ttstalk / .ghstalk / .ytstalk`,
-          '26': `──〔 🤖 AGENT MENU 〕──\n\n• .createagent`,
-          '27': `──〔 👑 OWNER MENU 〕──\n\n• .ban / .unban / .broadcast`,
-          '28': `──〔 📢 CHANNEL MENU 〕──\n\n• .channel / .subscribe / .unsubscribe`,
-          '29': `──〔 🛒 STORE & WALLET 〕──\n\n• .wallet / .shop / .products`,
-          '30': `──〔 📁 CLOUD STORAGE 〕──\n\n• .savefile / .upload / .myfiles / .files`,
-          '31': `──〔 ⭐ FAVOURITES 〕──\n\n• .addfav / .fav`,
-          '32': `──〔 🎵 SONG MENU 〕──\n\n• .play / .song / .audio`,
-          '33': `──〔 🤖 BOT SETTINGS 〕──\n\n• .chatbot / .setprefix`,
-          '34': `──〔 📦 SYSTEM OPERATIONS 〕──\n\n• .backup / .restore / .restart`,
-          '35': `──〔 🛡️ ADMIN MODERATION 〕──\n\n• .kick / .ban / .warn`
         };
 
-        const listText = submenusText[command] || '⚠️ Menu not found.';
-        await sock.sendMessage(from, { text: listText }, { quoted: m });
+        const menuText = menus[command] || `Menu ${command} not implemented yet.`;
+        await sock.sendMessage(from, { text: menuText }, { quoted: m });
         break;
       }
+
 
       case '11': {
         const agentMenu = `──〔 🤖 MULTI-TENANT AI AGENT PLATFORM 〕──
@@ -1958,7 +1969,8 @@ _Tune in or type *.live* to check updates!_`;
       case 'disable': {
         if (!context.isOwner) return sock.sendMessage(from, { text: 'Owner only command!' }, { quoted: m });
         if (args.length === 0) return sock.sendMessage(from, { text: 'Please specify a feature!' }, { quoted: m });
-        const feature = args[0];
+        let feature = args[0];
+        if (feature === 'smartreply') feature = 'ai_smart_reply';
         const value = command === 'enable';
         const sId = (sock as any).sessionId || 'default_bot';
         await setFeature(feature, value, sId);
@@ -2580,18 +2592,25 @@ An M-Pesa SIM ToolKit popup has been triggered directly on the phone *+${targetP
         if (!targetUser) {
           return sock.sendMessage(from, { text: '⚠️ Please mention or specify a target user! (e.g. `.ban @123456789`)' }, { quoted: m });
         }
-        const userCleanKey = targetUser.replace(/[^a-z0-9_]/g, '');
-        if (command === 'ban') {
-          if (getIsFirestoreUsable() && usersDb) {
-            await usersDb.doc(userCleanKey).set({ banned: true }, { merge: true }).catch(() => {});
-          }
-          await sock.sendMessage(from, { text: `🚫 *User @${targetUser.split('@')[0]} has been successfully banned* from using DANSCOM bots.` }, { quoted: m });
-        } else {
-          if (getIsFirestoreUsable() && usersDb) {
-            await usersDb.doc(userCleanKey).set({ banned: false }, { merge: true }).catch(() => {});
-          }
-          await sock.sendMessage(from, { text: `✅ *User @${targetUser.split('@')[0]} has been unbanned.* Access fully restored.` }, { quoted: m });
+        await updateUser(targetUser, { isBlocked: command === 'ban' });
+        await sock.sendMessage(from, { text: `✅ *User @${targetUser.split('@')[0]} has been successfully ${command === 'ban' ? 'blocked' : 'unblocked'}.*` }, { quoted: m });
+        break;
+      }
+      
+      case 'setrole': {
+        if (!context.isOwner) {
+          return sock.sendMessage(from, { text: '❌ *Access Denied:* Only the Bot Owner can change roles.' }, { quoted: m });
         }
+        let targetUser = args[0] ? args[0].replace(/[^0-9]/g, '') + '@s.whatsapp.net' : null;
+        if (m.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0]) {
+          targetUser = m.message.extendedTextMessage.contextInfo.mentionedJid[0];
+        }
+        const role = args[args.length - 1]; // Assume last arg is role
+        if (!targetUser || !role || !['superadmin', 'admin', 'user'].includes(role)) {
+          return sock.sendMessage(from, { text: '⚠️ Usage: .setrole @user [superadmin|admin|user]' }, { quoted: m });
+        }
+        await updateUser(targetUser, { role: role as any });
+        await sock.sendMessage(from, { text: `✅ User @${targetUser.split('@')[0]} role set to ${role}.` }, { quoted: m });
         break;
       }
 

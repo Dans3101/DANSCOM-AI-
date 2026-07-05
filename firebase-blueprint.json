@@ -16,7 +16,9 @@
       "type": "object",
       "properties": {
         "usageCount": { "type": "number" },
-        "lastSeen": { "type": "string", "format": "date-time" }
+        "lastSeen": { "type": "string", "format": "date-time" },
+        "role": { "type": "string", "enum": ["superadmin", "admin", "user"] },
+        "isBlocked": { "type": "boolean" }
       }
     },
     "Setting": {

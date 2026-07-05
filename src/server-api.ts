@@ -11,7 +11,7 @@ import {
   restartWhatsAppSession,
   restartWhatsApp
 } from './services/whatsapp.js';
-import { analyticsDb, usersDb, getIsFirestoreUsable, commandLogsDb } from './database/firebase.js';
+import { analyticsDb, usersDb, getIsFirestoreUsable, commandLogsDb, handleFirestoreError } from './database/firebase.js';
 import { getCommandCount } from './utils/commandTracker.js';
 import { 
   getAllTerminals, 
@@ -198,6 +198,7 @@ app.get('/api/stats', async (req, res) => {
           });
       } catch (dbErr: any) {
           console.warn('[Stats API] Firestore query failed (likely resource exhausted/quota limit):', dbErr.message);
+          handleFirestoreError(dbErr);
           // Graceful fallback for quota-exhausted environments
           res.json({
               totalCommands: realTimeCount,
