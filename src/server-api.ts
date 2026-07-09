@@ -151,7 +151,7 @@ app.get('/api/connection', (req, res) => {
 
 let cachedStats: any = null;
 let lastStatsFetch = 0;
-const STATS_CACHE_TTL = 45000; // 45 seconds
+const STATS_CACHE_TTL = 600000; // 10 minutes
 
 app.get('/api/stats', async (req, res) => {
   try {

@@ -171,24 +171,20 @@ export default function App() {
   
   useEffect(() => {
     const fetchLogs = async () => {
-        console.log('[App] Fetching logs...');
         try {
             const res = await fetch('/api/logs-data');
-            console.log('[App] Fetch response status:', res.status);
-            if (!res.ok) {
-                console.error('Failed to fetch logs, status:', res.status);
-                return;
-            }
+            if (!res.ok) return;
             const data = await res.json();
             setCommandLogs(data);
         } catch (err) {
-            console.error('Failed to fetch logs:', err);
+            // Silently ignore log fetch errors
         }
     };
     fetchLogs();
     const interval = setInterval(fetchLogs, 5000); // Poll every 5s
     return () => clearInterval(interval);
   }, []);
+  const [isTimedOut, setIsTimedOut] = useState(false);
   const [terminalData, setTerminalData] = useState<any>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -325,13 +321,25 @@ export default function App() {
 
     if (termParam) {
       setActiveTerminalId(termParam);
+      
+      const timeoutId = setTimeout(() => {
+        setIsTimedOut(true);
+        if (!terminalData) {
+            setTerminalData({ name: 'Fallback Terminal', setupFee: 0, weeklyRate: 0, id: termParam });
+        }
+      }, 30000);
+
       safeFetch(`/api/terminals/${termParam}`)
         .then(data => {
+          clearTimeout(timeoutId);
           if (!data.error) {
             setTerminalData(data);
           }
         })
-        .catch(err => console.error('Error fetching single terminal details:', err));
+        .catch(err => {
+          clearTimeout(timeoutId);
+          console.error('Error fetching single terminal details:', err);
+        });
     } else {
       // 2. Load owner terminals database
       safeFetch('/api/terminals')
@@ -1499,7 +1507,7 @@ export default function App() {
 
   // --- RENDERING ISOLATED MINI-DASHBOARD PAGE ---
   if (activeTerminalId) {
-    if (!terminalData) {
+    if (!terminalData && !isTimedOut) {
       return (
         <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
           <Bot className="w-10 h-10 text-emerald-500 animate-bounce mb-3" />

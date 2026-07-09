@@ -2,7 +2,7 @@ import { WASocket } from '@whiskeysockets/baileys';
 import fs from 'fs';
 import path from 'path';
 import admin from 'firebase-admin';
-import { getIsFirestoreUsable } from '../database/firebase.js';
+import { getIsFirestoreUsable, db, handleFirestoreError } from '../database/firebase.js';
 import { geminiAssistant } from '../services/gemini.js';
 import { downloadMediaBuffer } from './mediaUtils.js';
 import { agentHandler } from './agent.js';
@@ -107,9 +107,11 @@ export interface SystemStats {
 // Read database from either Firestore or fall back to local encrypted JSON structure
 export const loadEcosystemDb = async (): Promise<Record<string, UserProfile>> => {
   try {
-    if (getIsFirestoreUsable()) {
-      const dbInstance = admin.firestore();
-      const snap = await dbInstance.collection('ecosystem_users').get().catch(() => null);
+    if (getIsFirestoreUsable() && db) {
+      const snap = await db.collection('ecosystem_users').get().catch((err: any) => {
+          handleFirestoreError(err);
+          return null;
+      });
       if (snap && !snap.empty) {
         const raw: Record<string, UserProfile> = {};
         snap.forEach((doc) => {
@@ -153,12 +155,12 @@ export const syncUserProfile = async (profile: UserProfile): Promise<void> => {
   }
 
   // 2. Sync to Cloud Firestore
-  if (getIsFirestoreUsable()) {
+  if (getIsFirestoreUsable() && db) {
     try {
-      const dbInstance = admin.firestore();
-      await dbInstance.collection('ecosystem_users').doc(profile.id).set(profile, { merge: true }).catch(() => {});
+      await db.collection('ecosystem_users').doc(profile.id).set(profile, { merge: true });
     } catch (err: any) {
       console.warn('[Ecosystem DB Cloud Sync Skip]: Firestore currently throttled or offline.', err.message);
+      handleFirestoreError(err);
     }
   }
 };
