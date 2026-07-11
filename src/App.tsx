@@ -339,6 +339,7 @@ export default function App() {
         .catch(err => {
           clearTimeout(timeoutId);
           console.error('Error fetching single terminal details:', err);
+          setTerminalData({ name: 'Fallback Terminal', setupFee: 0, weeklyRate: 0, id: termParam });
         });
     } else {
       // 2. Load owner terminals database
