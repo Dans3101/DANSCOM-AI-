@@ -595,6 +595,7 @@ export const saveSessionMetadata = async (
   };
 
   inMemoryMetadata.set(sessionId, updated);
+  /*
   if (getIsFirestoreUsable() && settingsDb) {
     try {
       await settingsDb.doc(`metadata_${sessionId}`).set(updated);
@@ -602,6 +603,7 @@ export const saveSessionMetadata = async (
       console.warn(`[TerminalService] Failed to save session metadata for ${sessionId}:`, e.message);
     }
   }
+  */
   return updated;
 };
 
@@ -615,6 +617,7 @@ export const getSessionMetadata = async (sessionId: string): Promise<SessionMeta
     }
     return meta;
   }
+  /*
   if (getIsFirestoreUsable() && settingsDb) {
     try {
       const doc = await settingsDb.doc(`metadata_${sessionId}`).get();
@@ -632,6 +635,7 @@ export const getSessionMetadata = async (sessionId: string): Promise<SessionMeta
       console.warn(`[TerminalService] Failed to get session metadata for ${sessionId}:`, e.message);
     }
   }
+  */
   return null;
 };
 

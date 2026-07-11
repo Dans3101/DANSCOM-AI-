@@ -2075,7 +2075,7 @@ export default function App() {
                       placeholder="e.g. 254712345678"
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono"
+                      className="w-full bg-white border-2 border-slate-300 rounded-2xl py-3.5 px-4 text-base font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all font-mono"
                     />
                   </div>
 

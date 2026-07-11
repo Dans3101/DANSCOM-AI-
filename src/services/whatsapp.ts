@@ -92,6 +92,7 @@ export const getExistingSessions = async (): Promise<string[]> => {
     
     // In rare cases where the container starts entirely fresh with no disk mount but Firestore still contains active credentials,
     // we query ONLY the credentials keys directly rather than performing a heavy collection-wide scan.
+    /*
     const isReady = await firestoreReadyPromise;
     if (sessionsDb && isReady && getIsFirestoreUsable()) {
         try {
@@ -113,6 +114,8 @@ export const getExistingSessions = async (): Promise<string[]> => {
             handleFirestoreError(e);
         }
     }
+    */
+    console.log('[Firestore getExistingSessions fallback] Firestore session discovery disabled.');
 
     return Array.from(sessionIds);
 };
@@ -350,6 +353,7 @@ export const startWhatsAppSession = async (sessionId: string) => {
 
         let authState;
         try {
+            /*
             const isReady = await firestoreReadyPromise;
             if (sessionsDb && isReady) {
                 console.log(`>> Using Firestore for session storage [Session: ${sessionId}]`);
@@ -358,6 +362,9 @@ export const startWhatsAppSession = async (sessionId: string) => {
                 console.log(`>> Using local file system for session storage [Session: ${sessionId}]`);
                 authState = await useMultiFileAuthState(`auth_info_baileys_${sessionId}`);
             }
+            */
+            console.log(`>> Using local file system for session storage (Firestore disabled) [Session: ${sessionId}]`);
+            authState = await useMultiFileAuthState(`auth_info_baileys_${sessionId}`);
         } catch (error) {
             console.error('>> Auth state initialization failed:', error);
             authState = await useMultiFileAuthState(`auth_info_baileys_${sessionId}`);
