@@ -354,6 +354,7 @@ export const startWhatsAppSession = async (sessionId: string) => {
         let authState;
         try {
             const isReady = await firestoreReadyPromise;
+            console.log(`>> Firestore readiness state: ${isReady}`);
             if (sessionsDb && isReady) {
                 console.log(`>> Using Firestore for session storage [Session: ${sessionId}]`);
                 authState = await useFirestoreAuthState(sessionId);

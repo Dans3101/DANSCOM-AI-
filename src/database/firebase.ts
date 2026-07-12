@@ -55,8 +55,10 @@ try {
   console.warn('Failed to read firebase-applet-config.json for firestoreDatabaseId:', e);
 }
 
+console.log('Firebase Admin apps length:', admin.apps.length);
 if (!admin.apps.length) {
   try {
+    console.log('Firebase config:', !!config.firebase.projectId, !!config.firebase.privateKey, !!config.firebase.clientEmail);
     if (config.firebase.projectId && config.firebase.privateKey && config.firebase.clientEmail) {
       try {
         admin.initializeApp({
@@ -119,7 +121,7 @@ export const firestoreReadyPromise = (async () => {
     console.log('Firestore is ready and accessible with database ID:', firestoreDatabaseId || '(default)');
     return true;
   } catch (err: any) {
-    console.warn('Firestore is initialized but API/credentials might be disabled or unreachable:', err.message);
+    console.warn('[Firebase] Firestore check failed:', err.message, err.stack);
     isFirestoreUsable = false;
     return false;
   }
