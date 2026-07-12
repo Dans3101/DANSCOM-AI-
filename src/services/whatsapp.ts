@@ -353,7 +353,6 @@ export const startWhatsAppSession = async (sessionId: string) => {
 
         let authState;
         try {
-            /*
             const isReady = await firestoreReadyPromise;
             if (sessionsDb && isReady) {
                 console.log(`>> Using Firestore for session storage [Session: ${sessionId}]`);
@@ -362,9 +361,6 @@ export const startWhatsAppSession = async (sessionId: string) => {
                 console.log(`>> Using local file system for session storage [Session: ${sessionId}]`);
                 authState = await useMultiFileAuthState(`auth_info_baileys_${sessionId}`);
             }
-            */
-            console.log(`>> Using local file system for session storage (Firestore disabled) [Session: ${sessionId}]`);
-            authState = await useMultiFileAuthState(`auth_info_baileys_${sessionId}`);
         } catch (error) {
             console.error('>> Auth state initialization failed:', error);
             authState = await useMultiFileAuthState(`auth_info_baileys_${sessionId}`);
@@ -404,6 +400,7 @@ export const startWhatsAppSession = async (sessionId: string) => {
 
         currentSock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
+            console.log(`>> [${sessionId}] Connection update:`, connection);
             
             if (connection) {
                 sess!.connectionState = connection;
@@ -411,11 +408,12 @@ export const startWhatsAppSession = async (sessionId: string) => {
             
             if (qr) {
                 sess!.qr = qr;
-                console.log(`>> NEW QR Code generated for session: [${sessionId}]`);
+                console.log(`>> [${sessionId}] NEW QR Code generated`);
                 QRCode.generate(qr, { small: true });
             }
 
             if (connection === 'close') {
+                console.log(`>> [${sessionId}] Connection closed. Last disconnect:`, lastDisconnect);
                 sess!.qr = null;
                 sess!.pairingCode = null;
                 sess!.sock = null; // Clear socket to reflect correct disconnected state in dashboard

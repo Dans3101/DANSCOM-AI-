@@ -8,7 +8,11 @@ export let isFirestoreUsable = false;
 let firestoreDisabledUntil = 0;
 
 export const getIsFirestoreUsable = () => {
-  return false;
+  if (!isFirestoreUsable && firestoreDisabledUntil < Date.now()) {
+    isFirestoreUsable = true;
+    firestoreDisabledUntil = 0;
+  }
+  return isFirestoreUsable;
 };
 
 export const setFirestoreUsable = (usable: boolean) => {
