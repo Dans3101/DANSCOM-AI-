@@ -2047,7 +2047,7 @@ export default function App() {
                       onClick={() => {
                         deferredPrompt.prompt();
                       }}
-                      className="w-full py-3 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 font-bold text-[10px] uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2"
+                      className="w-full py-4 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 font-bold text-xs uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 min-h-[44px]"
                     >
                       <Smartphone className="w-3.5 h-3.5" />
                       Install Pairing App
@@ -2060,7 +2060,7 @@ export default function App() {
                       <button
                         key={key}
                         onClick={() => setPairingFeatures(prev => ({ ...prev, [key]: !value }))}
-                        className={`py-2 px-1 rounded-xl text-[9px] font-black uppercase tracking-wider border transition-all ${value ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+                        className={`py-4 px-4 rounded-xl text-[11px] font-black uppercase tracking-wider border transition-all min-h-[44px] ${value ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
                       >
                         {key}
                       </button>
@@ -2081,7 +2081,7 @@ export default function App() {
                   <button 
                     onClick={handleRequestPairingCode}
                     disabled={isRequestingPairing || !phoneNumber}
-                    className="w-full py-4 bg-slate-900 border border-slate-950 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-widest rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                    className="w-full py-6 bg-slate-900 border border-slate-950 hover:bg-slate-800 text-white font-bold text-base uppercase tracking-widest rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 min-h-[56px]"
                   >
                     {isRequestingPairing ? <RefreshCw className="w-4 h-4 animate-spin" /> : '🔗 Generate Pairing Code'}
                   </button>
