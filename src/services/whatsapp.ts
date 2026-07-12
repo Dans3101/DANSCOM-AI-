@@ -9,7 +9,7 @@ import { Boom } from '@hapi/boom';
 import pino from 'pino';
 import QRCode from 'qrcode-terminal';
 import { useFirestoreAuthState } from '../database/firestoreStore.js';
-import { sessionsDb, firestoreReadyPromise, getIsFirestoreUsable, handleFirestoreError } from '../database/firebase.js';
+import { sessionsDb, checkFirestoreReady, getIsFirestoreUsable, handleFirestoreError } from '../database/firebase.js';
 import { handleMessages } from '../handlers/messageHandler.js';
 import { startAutoBio } from './autobio.js';
 import { isEnabled } from '../utils/settings.js';
@@ -127,6 +127,7 @@ export const getConnectionState = () => {
             qr: def.qr,
             pairingCode: def.pairingCode,
             connected: def.connectionState === 'open' && !!def.sock?.user,
+            state: def.connectionState || 'disconnected',
             pairingNumber: def.pairingNumber,
             user: def.sock?.user ? {
                 id: def.sock.user.id,
@@ -138,6 +139,7 @@ export const getConnectionState = () => {
         qr: null,
         pairingCode: null,
         connected: false,
+        state: 'disconnected',
         pairingNumber: null,
         user: null
     };
@@ -353,7 +355,7 @@ export const startWhatsAppSession = async (sessionId: string) => {
 
         let authState;
         try {
-            const isReady = await firestoreReadyPromise;
+            const isReady = await checkFirestoreReady();
             console.log(`>> Firestore readiness state: ${isReady}`);
             if (sessionsDb && isReady) {
                 console.log(`>> Using Firestore for session storage [Session: ${sessionId}]`);
@@ -401,7 +403,7 @@ export const startWhatsAppSession = async (sessionId: string) => {
 
         currentSock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
-            console.log(`>> [${sessionId}] Connection update:`, connection);
+            console.log(`>> [${sessionId}] Connection update object:`, JSON.stringify(update));
             
             if (connection) {
                 sess!.connectionState = connection;
