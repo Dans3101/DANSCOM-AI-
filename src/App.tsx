@@ -324,10 +324,8 @@ export default function App() {
       
       const timeoutId = setTimeout(() => {
         setIsTimedOut(true);
-        if (!terminalData) {
-            setTerminalData({ name: 'Fallback Terminal', setupFee: 0, weeklyRate: 0, id: termParam });
-        }
-      }, 30000);
+        setTerminalData(prevData => prevData || { name: 'Fallback Terminal', setupFee: 0, weeklyRate: 0, id: termParam });
+      }, 5000);
 
       safeFetch(`/api/terminals/${termParam}`)
         .then(data => {
