@@ -107,7 +107,7 @@ export const firestoreReadyPromise = (async () => {
         return err;
       });
     const timeoutPromise = new Promise<'timeout'>((resolve) =>
-      setTimeout(() => resolve('timeout' as const), 3000)
+      setTimeout(() => resolve('timeout' as const), 10000)
     );
     const result = await Promise.race([listCollectionsPromise, timeoutPromise]);
     

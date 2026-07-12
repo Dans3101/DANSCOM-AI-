@@ -2261,7 +2261,11 @@ export default function App() {
                 >
                   <QrCode className="w-4 h-4 transition-transform group-hover/li:scale-110" />
                   Connect Bot
-                  {connection.connected && <div className="ml-auto w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>}
+                  {connection.connected ? (
+                    <div className="ml-auto w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
+                  ) : (
+                    <div className="ml-auto w-1.5 h-1.5 bg-red-500 rounded-full"></div>
+                  )}
                 </li>
                 <li 
                   onClick={() => setActiveTab('sessions')}
