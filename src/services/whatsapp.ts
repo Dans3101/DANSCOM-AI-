@@ -617,7 +617,7 @@ export const startWhatsApp = async () => {
 let connectionMonitorInterval: any = null;
 const startConnectionMonitor = () => {
     if (connectionMonitorInterval) return;
-    console.log('>> Initiating DANSCOM Connection Monitor kept-alive daemon (30s checks)');
+    console.log('>> Initiating DANSCOM Connection Monitor (60s checks)');
     connectionMonitorInterval = setInterval(async () => {
         try {
             // 1. Maintain default_bot active
@@ -627,10 +627,10 @@ const startConnectionMonitor = () => {
                  await deleteWhatsAppSession('default_bot').catch(() => {});
                  def = undefined;
             }
-            if (!def) {
+            if (!def && !sessions.has('default_bot')) {
                 console.log('[Connection Monitor] default_bot session is missing, bringing it online...');
                 await startWhatsAppSession('default_bot').catch(() => {});
-            } else if (!def.sock && !def.isInitializing) {
+            } else if (def && !def.sock && !def.isInitializing) {
                 console.log('[Connection Monitor] default_bot is currently uninitialized, automatically reviving...');
                 await startWhatsAppSession('default_bot').catch(() => {});
             }
@@ -645,10 +645,10 @@ const startConnectionMonitor = () => {
                      await deleteWhatsAppSession(sessId).catch(() => {});
                      sess = undefined;
                 }
-                if (!sess) {
+                if (!sess && !sessions.has(sessId)) {
                     console.log(`[Connection Monitor] Saved session [${sessId}] was missing from memory. Auto-loading...`);
                     await startWhatsAppSession(sessId).catch(() => {});
-                } else if (!sess.sock && !sess.isInitializing) {
+                } else if (sess && !sess.sock && !sess.isInitializing) {
                     console.log(`[Connection Monitor] Session [${sessId}] socket is missing from memory. Reviving...`);
                     await startWhatsAppSession(sessId).catch(() => {});
                 }
@@ -656,7 +656,7 @@ const startConnectionMonitor = () => {
         } catch (monitorErr: any) {
             console.error('[Connection Monitor Error]:', monitorErr.message);
         }
-    }, 30000);
+    }, 60000);
 };
 
 export { sock };
