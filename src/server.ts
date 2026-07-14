@@ -3,8 +3,10 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { app as apiApp } from './server-api.js';
 import { startWhatsApp } from './services/whatsapp.js';
+import { checkFirestoreReady } from './database/firebase.js';
 
 async function bootstrap() {
+  await checkFirestoreReady();
   const app = express();
   const PORT = 3000;
 

@@ -1506,15 +1506,6 @@ export default function App() {
 
   // --- RENDERING ISOLATED MINI-DASHBOARD PAGE ---
   if (activeTerminalId) {
-    if (!terminalData && !isTimedOut) {
-      return (
-        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
-          <Bot className="w-10 h-10 text-emerald-500 animate-bounce mb-3" />
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Querying active terminal channel...</p>
-        </div>
-      );
-    }
-
     return (
       <div className="min-h-screen w-full bg-slate-50 text-slate-900 font-sans flex flex-col justify-start overflow-x-hidden">
         {/* Isolated header so users "gets pairing codes and qr codes without having the original dashboard" */}
@@ -1525,10 +1516,10 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-sm font-black tracking-tight text-slate-800 uppercase leading-none">
-                {terminalData.name}
+                {terminalData?.name || 'Dashboard Loading...'}
               </h1>
               <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">
-                OPERATOR: {terminalData.operatorName}
+                OPERATOR: {terminalData?.operatorName || '...'}
               </p>
             </div>
           </div>

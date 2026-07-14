@@ -159,7 +159,6 @@ export const createTerminal = async (terminalData: Omit<Terminal, 'createdAt' | 
   }
 
   inMemoryTerminals.set(newTerminal.id, newTerminal);
-  lastTerminalsFetch = 0; // Invalidate cache
   return newTerminal;
 };
 
@@ -173,7 +172,6 @@ export const addSessionToTerminal = async (terminalId: string, sessionId: string
   if (!terminal.sessionIds.includes(sessionId)) {
     terminal.sessionIds.push(sessionId);
     inMemoryTerminals.set(terminalId, terminal);
-    lastTerminalsFetch = 0; // Invalidate cache
 
     if (getIsFirestoreUsable() && terminalsDb) {
       try {
@@ -216,7 +214,6 @@ export const initiateIntasendPayment = async (params: {
   };
 
   inMemoryPayments.set(checkoutId, transaction);
-  lastPaymentsFetch = 0; // Invalidate cache
   if (getIsFirestoreUsable() && paymentsDb) {
     try {
       await paymentsDb.doc(checkoutId).set(transaction);
@@ -389,8 +386,6 @@ export const verifyIntasendPayment = async (invoiceId: string): Promise<{ succes
       inMemoryPayments.set(transaction.payheroReference, transaction);
     }
     
-    lastPaymentsFetch = 0; // Invalidate cache
-
     if (getIsFirestoreUsable() && paymentsDb) {
       try {
         await paymentsDb.doc(transaction.id).set(transaction);

@@ -135,7 +135,7 @@ app.get('/api/logs-data', async (req, res) => {
       console.error('[API Logs] commandLogsDb is null, unexpected');
       throw new Error('commandLogsDb is null');
     }
-    const snapshot = await commandLogsDb.get();
+    const snapshot = await commandLogsDb.orderBy('timestamp', 'desc').limit(50).get();
     const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     console.log(`[API Logs] Found ${logs.length} logs`);
     res.json(logs);
@@ -151,7 +151,7 @@ app.get('/api/connection', (req, res) => {
 
 let cachedStats: any = null;
 let lastStatsFetch = 0;
-const STATS_CACHE_TTL = 600000; // 10 minutes
+const STATS_CACHE_TTL = 3600000; // 1 hour
 
 app.get('/api/stats', async (req, res) => {
   try {

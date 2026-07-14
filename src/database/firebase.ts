@@ -6,11 +6,17 @@ import path from 'path';
 
 export let isFirestoreUsable = false;
 let firestoreDisabledUntil = 0;
+let firestoreFailureCount = 0;
 
 export const getIsFirestoreUsable = () => {
+  if (firestoreDisabledUntil > Date.now()) {
+    isFirestoreUsable = false;
+    return false;
+  }
   if (!isFirestoreUsable && firestoreDisabledUntil < Date.now()) {
     isFirestoreUsable = true;
     firestoreDisabledUntil = 0;
+    firestoreFailureCount = 0; // Reset count on re-enabling
   }
   return isFirestoreUsable;
 };
@@ -36,9 +42,13 @@ export const handleFirestoreError = (err: any) => {
     msg.includes('resource exhausted')
   ) {
     if (isFirestoreUsable) {
-        console.warn(`[Firebase] Firestore Resource Issue detected (Quota/Timeout). Disabling Firestore for 1 hour. Error:`, err.message);
+        firestoreFailureCount++;
+        // Exponential backoff: 30m, 1h, 2h, 4h, 8h...
+        const backoffMinutes = Math.min(60 * 8, 30 * Math.pow(2, Math.min(firestoreFailureCount - 1, 4)));
+        const backoffMs = backoffMinutes * 60 * 1000;
+        console.warn(`[Firebase] Firestore Resource Issue detected. Disabling Firestore for ${backoffMinutes} minutes. Failure count: ${firestoreFailureCount}. Error:`, err.message);
         isFirestoreUsable = false;
-        firestoreDisabledUntil = Date.now() + 3600000; // 1 hour
+        firestoreDisabledUntil = Date.now() + backoffMs;
     }
   }
 };
@@ -98,6 +108,10 @@ export const db = firestoreDb;
 
 export const checkFirestoreReady = async () => {
   if (!db) return false;
+  if (firestoreDisabledUntil > Date.now()) {
+      isFirestoreUsable = false;
+      return false;
+  }
   try {
     const listCollectionsPromise = db.listCollections()
       .then(() => 'success' as const)
@@ -105,12 +119,12 @@ export const checkFirestoreReady = async () => {
         return err;
       });
     const timeoutPromise = new Promise<'timeout'>((resolve) =>
-      setTimeout(() => resolve('timeout' as const), 10000)
+      setTimeout(() => resolve('timeout' as const), 5000)
     );
     const result = await Promise.race([listCollectionsPromise, timeoutPromise]);
     
     if (result === 'timeout') {
-      throw new Error('Firestore network check timed out (10s)');
+      throw new Error('Firestore network check timed out (5s)');
     } else if (result instanceof Error) {
       throw result;
     }
@@ -121,7 +135,7 @@ export const checkFirestoreReady = async () => {
   } catch (err: any) {
     console.warn('[Firebase] Firestore check failed:', err.message);
     isFirestoreUsable = false;
-    firestoreDisabledUntil = Date.now() + 3600000; // 1 hour
+    firestoreDisabledUntil = Date.now() + 300000; // 5 minutes
     return false;
   }
 };
