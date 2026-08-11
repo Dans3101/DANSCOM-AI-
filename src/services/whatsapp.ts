@@ -93,7 +93,7 @@ export const getExistingSessions = async (): Promise<string[]> => {
     // In rare cases where the container starts entirely fresh with no disk mount but Firestore still contains active credentials,
     // we query ONLY the credentials keys directly rather than performing a heavy collection-wide scan.
     /*
-    const isReady = await firestoreReadyPromise;
+    const isReady = await checkFirestoreReady();
     if (sessionsDb && isReady && getIsFirestoreUsable()) {
         try {
             console.log('[Firestore getExistingSessions fallback] Initializing light credentials key lookup...');
@@ -259,7 +259,7 @@ export const deleteWhatsAppSession = async (sessionId: string) => {
     }
     
     // 1. Clears All Firestore Documents for this Session Prefix
-    const isReady = await firestoreReadyPromise;
+    const isReady = await checkFirestoreReady();
     if (sessionsDb && isReady && getIsFirestoreUsable()) {
         try {
             // Using precise Firestore prefix index matching is fast and scales
@@ -430,7 +430,7 @@ export const startWhatsAppSession = async (sessionId: string) => {
                 
                 if (statusCode === DisconnectReason.loggedOut) {
                     console.log(`>> Session [${sessionId}] logged out. Clearing data...`);
-                    const isReady = await firestoreReadyPromise;
+                    const isReady = await checkFirestoreReady();
                     if (sessionsDb && isReady && getIsFirestoreUsable()) {
                         try {
                             const snapshot = await sessionsDb
