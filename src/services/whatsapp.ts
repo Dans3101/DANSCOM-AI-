@@ -188,7 +188,7 @@ export const getConnectionState = () => {
                       id: def.sock.user.id,
                       name:
                           def.sock.user.name ||
-                          'TITUS-BOT-X Bot'
+                          'DANSCOM Bot'
                   }
                 : null
         };
@@ -221,7 +221,7 @@ export const getSessionsState = () => {
                       id: sess.sock.user.id,
                       name:
                           sess.sock.user.name ||
-                          'TITUS-BOT-X Bot'
+                          'DANSCOM Bot'
                   }
                 : null
         });
@@ -652,7 +652,7 @@ export const startWhatsAppSession = async (
 
     try {
         console.log(
-            `>> Initializing TITUS-BOT-X [Session: ${sessionId}]...`
+            `>> Initializing DANSCOM [Session: ${sessionId}]...`
         );
 
         // --------------------------------------------------------
@@ -1070,7 +1070,7 @@ export const startWhatsAppSession = async (
                     sess.pairingCode = null;
 
                     console.log(
-                        `>> TITUS-BOT-X connected successfully! [Session: ${sessionId}]`
+                        `>> DANSCOM connected successfully! [Session: ${sessionId}]`
                     );
 
                     // Clear any pending reconnect timer
@@ -1133,7 +1133,7 @@ export const startWhatsAppSession = async (
                                 const clientName =
                                     currentSock.user
                                         .name ||
-                                    'TITUS-BOT-X Bot';
+                                    'DANSCOM Bot';
 
                                 const controlCode =
                                     Math.floor(
@@ -1154,13 +1154,13 @@ export const startWhatsAppSession = async (
 
                             let welcomeText =
                                 `🎉 *Congratulations!*\n\n` +
-                                `Your *TITUS-BOT-X WhatsApp Bot* ` +
+                                `Your *DANSCOM WhatsApp Bot* ` +
                                 `(Session: \`${sessionId}\`) ` +
                                 `has been successfully connected and is now fully active!\n\n` +
                                 `🤖 *Bot Profile:* ${
                                     currentSock.user
                                         .name ||
-                                    'TITUS-BOT-X'
+                                    'DANSCOM'
                                 }\n` +
                                 `📱 *Number:* ${userPhone}\n\n` +
                                 `Enjoy using your automated features! ` +
@@ -1209,7 +1209,7 @@ export const startWhatsAppSession = async (
                                             await initiateIntasendPayment(
                                                 {
                                                     amount,
-                                                    email: `${userPhone}@TITUS-BOT-X.com`,
+                                                    email: `${userPhone}@DANSCOM.com`,
                                                     phoneNumber:
                                                         userPhone,
                                                     sessionId,
@@ -1250,7 +1250,7 @@ export const startWhatsAppSession = async (
                                             await initiateIntasendPayment(
                                                 {
                                                     amount: 5,
-                                                    email: `${userPhone}@TITUS-BOT-X.com`,
+                                                    email: `${userPhone}@DANSCOM.com`,
                                                     phoneNumber:
                                                         userPhone,
                                                     sessionId,
@@ -1536,7 +1536,7 @@ const startConnectionMonitor = () => {
     }
 
     console.log(
-        '>> TITUS-BOT-X Connection Monitor started.'
+        '>> DANSCOM Connection Monitor started.'
     );
 
     connectionMonitorInterval =
