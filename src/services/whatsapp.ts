@@ -425,11 +425,17 @@ export const startWhatsAppSession = async (sessionId: string) => {
                     sock = null;
                 }
                 const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                const errMessage = (lastDisconnect?.error as any)?.message || '';
+                const isQrTimeout = statusCode === 408 || errMessage.includes('QR refs attempts ended');
+                let shouldReconnect = statusCode !== DisconnectReason.loggedOut && !isQrTimeout;
                 
-                console.log(`>> Connection closed for session: [${sessionId}] (Reason: ${statusCode}). Reconnecting: ${shouldReconnect}`);
+                console.log(`>> Connection closed for session: [${sessionId}] (Reason: ${statusCode}, Message: ${errMessage}). Reconnecting: ${shouldReconnect}`);
                 
-                if (statusCode === DisconnectReason.loggedOut) {
+                if (isQrTimeout) {
+                    console.log(`>> [${sessionId}] QR session timed out (408 QR refs attempts ended). Cleaning up auth state for fresh scan...`);
+                    await deleteWhatsAppSession(sessionId).catch(() => {});
+                    shouldReconnect = false;
+                } else if (statusCode === DisconnectReason.loggedOut) {
                     console.log(`>> Session [${sessionId}] logged out. Clearing data...`);
                     const isReady = await checkFirestoreReady();
                     if (sessionsDb && isReady && getIsFirestoreUsable()) {
