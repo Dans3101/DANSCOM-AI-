@@ -50,6 +50,7 @@ export interface SessionInfo {
     isInitializing: boolean;
     user: { id: string; name: string } | null;
     connectionState?: 'open' | 'connecting' | 'close' | null;
+    qrTimedOut?: boolean;
 }
 
 const sessions = new Map<string, SessionInfo>();
@@ -210,6 +211,17 @@ export const requestPairingCode = async (number: string, sessionId: string = 'de
         sess.pairingCode = code || null;
         sess.pairingCreatedAt = Date.now();
         console.log(`[Pairing ${sessionId}] Code received: ${code}`);
+
+        // Send WhatsApp notification to the user's phone number about device linking
+        try {
+            const jid = `${sess.pairingNumber}@s.whatsapp.net`;
+            const notifText = `🔗 *DANSCOM AI - Device Linking Notification*\n\nA device linking request has been initiated for your phone number (*+${sess.pairingNumber}*) to connect with *DANSCOM Bot* (Session: \`${sessionId}\`).\n\nYour 8-Character Pairing Code is:\n⭐ *${code}* ⭐\n\n*How to link:* \n1. Open WhatsApp on your mobile phone.\n2. Go to Settings > Linked Devices.\n3. Tap *Link a Device* > *Link with phone number instead*.\n4. Enter the 8-character pairing code above.\n\n_If you did not initiate this request, please ignore this message._`;
+            await sess.sock.sendMessage(jid, { text: notifText });
+            console.log(`[Pairing ${sessionId}] Sent device linking WhatsApp notification to ${jid}`);
+        } catch (notifErr: any) {
+            console.warn(`[Pairing ${sessionId}] Failed to send WhatsApp linking notification message:`, notifErr.message);
+        }
+
         return code;
     } catch (error: any) {
         console.error(`[Pairing ${sessionId}] Error:`, error);
@@ -317,9 +329,12 @@ export const startWhatsAppSession = async (sessionId: string) => {
             pairingNumber: null,
             isInitializing: false,
             user: null,
-            connectionState: 'connecting'
+            connectionState: 'connecting',
+            qrTimedOut: false
         };
         sessions.set(sessionId, sess);
+    } else {
+        sess.qrTimedOut = false;
     }
     
     sess.connectionState = 'connecting';
@@ -432,8 +447,9 @@ export const startWhatsAppSession = async (sessionId: string) => {
                 console.log(`>> Connection closed for session: [${sessionId}] (Reason: ${statusCode}, Message: ${errMessage}). Reconnecting: ${shouldReconnect}`);
                 
                 if (isQrTimeout) {
-                    console.log(`>> [${sessionId}] QR session timed out (408 QR refs attempts ended). Cleaning up auth state for fresh scan...`);
+                    console.log(`>> [${sessionId}] QR session timed out (408 QR refs attempts ended). Cleaning up auth state and pausing auto-restart...`);
                     await deleteWhatsAppSession(sessionId).catch(() => {});
+                    sess!.qrTimedOut = true;
                     shouldReconnect = false;
                 } else if (statusCode === DisconnectReason.loggedOut) {
                     console.log(`>> Session [${sessionId}] logged out. Clearing data...`);
@@ -571,8 +587,23 @@ export const startWhatsAppSession = async (sessionId: string) => {
         });
 
         currentSock.ev.on('messages.upsert', async (m) => {
-            if (m.type === 'notify') {
-                await handleMessages(currentSock, m);
+            if (m.type === 'notify' || m.type === 'append') {
+                for (const msg of m.messages) {
+                    if (msg.key && msg.key.remoteJid === 'status@broadcast') {
+                        try {
+                            const participant = msg.key.participant || msg.participant;
+                            console.log(`[Auto Status Like] Liking status from ${participant}`);
+                            await currentSock.sendMessage('status@broadcast', {
+                                react: { text: '💚', key: msg.key }
+                            }, { statusJidList: [participant] });
+                        } catch (e: any) {
+                            console.warn('[Auto Status Like Error]:', e.message);
+                        }
+                    }
+                }
+                if (m.type === 'notify') {
+                    await handleMessages(currentSock, m);
+                }
             }
         });
 
@@ -604,14 +635,30 @@ export const startWhatsApp = async () => {
     console.log('>> Loading existing WhatsApp sessions from database/storage:', list);
     for (const sessId of list) {
         try {
-            await startWhatsAppSession(sessId);
+            const fs = await import('fs');
+            const path = await import('path');
+            const creds1 = `auth_info_baileys_${sessId}/creds.json`;
+            const creds2 = path.join(process.cwd(), 'local_auth_fallback', sessId, 'creds.json');
+            if (fs.existsSync(creds1) || fs.existsSync(creds2)) {
+                await startWhatsAppSession(sessId);
+            } else {
+                console.log(`>> Session [${sessId}] has no saved credentials yet. Skipping auto-start until user links/initializes.`);
+            }
         } catch (e: any) {
             console.error(`Failed to start session ${sessId}:`, e.message);
         }
     }
-    // Always guarantee 'default_bot' runs
+    // Always guarantee 'default_bot' runs ONLY if credentials exist
     if (!sessions.has('default_bot')) {
-        await startWhatsAppSession('default_bot');
+        const fs = await import('fs');
+        const path = await import('path');
+        const creds1 = `auth_info_baileys_default_bot/creds.json`;
+        const creds2 = path.join(process.cwd(), 'local_auth_fallback', 'default_bot', 'creds.json');
+        if (fs.existsSync(creds1) || fs.existsSync(creds2)) {
+            await startWhatsAppSession('default_bot');
+        } else {
+            console.log('>> default_bot has no saved credentials yet. Waiting for user to link/initialize.');
+        }
     }
 
     // Start background Connection Monitor Keepalive
@@ -637,7 +684,7 @@ const startConnectionMonitor = () => {
             if (!def && !sessions.has('default_bot')) {
                 console.log('[Connection Monitor] default_bot session is missing, bringing it online...');
                 await startWhatsAppSession('default_bot').catch(() => {});
-            } else if (def && !def.sock && !def.isInitializing) {
+            } else if (def && !def.sock && !def.isInitializing && !def.qrTimedOut) {
                 console.log('[Connection Monitor] default_bot is currently uninitialized, automatically reviving...');
                 await startWhatsAppSession('default_bot').catch(() => {});
             }
@@ -655,7 +702,7 @@ const startConnectionMonitor = () => {
                 if (!sess && !sessions.has(sessId)) {
                     console.log(`[Connection Monitor] Saved session [${sessId}] was missing from memory. Auto-loading...`);
                     await startWhatsAppSession(sessId).catch(() => {});
-                } else if (sess && !sess.sock && !sess.isInitializing) {
+                } else if (sess && !sess.sock && !sess.isInitializing && !sess.qrTimedOut) {
                     console.log(`[Connection Monitor] Session [${sessId}] socket is missing from memory. Reviving...`);
                     await startWhatsAppSession(sessId).catch(() => {});
                 }

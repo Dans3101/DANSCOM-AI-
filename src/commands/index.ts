@@ -12,6 +12,8 @@ import fs from 'fs';
 import path from 'path';
 import { agentHandler } from '../utils/agent.js';
 
+const userStickerPacks = new Map<string, Buffer[]>();
+
 const sendPaymentTrigger = async (sock: WASocket, m: any, from: string, sender: string) => {
   const phone = sender.split('@')[0].split(':')[0];
   try {
@@ -1898,7 +1900,76 @@ _Tune in or type *.live* to check updates!_`;
       }
 
       case 'sticker': {
-        await sock.sendMessage(from, { text: '🖼️ *Converting your attachment/image into a WhatsApp sticker...* \n🎨 Please wait while the media generator transpile files to webp sticker assets.' }, { quoted: m });
+        let imageMsg: any = null;
+        const currentMsgType = Object.keys(m.message || {})[0];
+        if (currentMsgType === 'imageMessage') {
+          imageMsg = m.message?.imageMessage;
+        } else if (currentMsgType === 'extendedTextMessage' || currentMsgType === 'conversation') {
+          const quotedMsg = m.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+          if (quotedMsg) {
+            const qType = Object.keys(quotedMsg)[0];
+            if (qType === 'imageMessage') {
+              imageMsg = quotedMsg.imageMessage;
+            } else if (qType === 'viewOnceMessage' || qType === 'viewOnceMessageV2') {
+              const inner = quotedMsg[qType]?.message;
+              if (inner?.imageMessage) {
+                imageMsg = inner.imageMessage;
+              }
+            }
+          }
+        }
+
+        if (!imageMsg) {
+          await sock.sendMessage(from, { text: '⚠️ Please send an image with caption `.sticker` OR reply to an image message with `.sticker` to generate your WhatsApp sticker!\n\n💡 *Tip:* Type `.stickerpack` to export your generated sticker pack collection.' }, { quoted: m });
+          break;
+        }
+
+        try {
+          await sock.sendMessage(from, { text: '🎨 *Converting image to WhatsApp sticker...* Please wait.' }, { quoted: m });
+          const { downloadContentFromMessage } = await import('@whiskeysockets/baileys');
+          const stream = await downloadContentFromMessage(imageMsg, 'image');
+          let buffer = Buffer.from([]);
+          for await (const chunk of stream) {
+            buffer = Buffer.concat([buffer, chunk]);
+          }
+
+          await sock.sendMessage(from, { 
+            sticker: buffer 
+          }, { quoted: m });
+
+          // Save to user sticker pack cache
+          if (!userStickerPacks.has(from)) {
+            userStickerPacks.set(from, []);
+          }
+          const userPack = userStickerPacks.get(from)!;
+          userPack.push(buffer);
+          if (userPack.length > 20) userPack.shift(); // keep last 20 stickers
+
+          await sock.sendMessage(from, { text: `✨ *Sticker added to your Pack!* (${userPack.length}/20 saved)\n📦 Type \`.stickerpack\` to export your entire WhatsApp sticker pack collection.` }, { quoted: m });
+          console.log(`[Sticker Generator] Successfully generated & saved sticker for ${from} (Pack size: ${userPack.length})`);
+        } catch (stickerErr: any) {
+          console.error('[Sticker Command Error]:', stickerErr);
+          await sock.sendMessage(from, { text: `❌ Failed to generate sticker: ${stickerErr.message}` }, { quoted: m });
+        }
+        break;
+      }
+
+      case 'stickerpack':
+      case 'pack': {
+        const pack = userStickerPacks.get(from) || [];
+        if (pack.length === 0) {
+          await sock.sendMessage(from, { text: '📦 *DANSCOM Sticker Pack*\n\nYour sticker pack collection is currently empty! Generate stickers using `.sticker` on any image first.' }, { quoted: m });
+          break;
+        }
+
+        await sock.sendMessage(from, { text: `📦 *Exporting DANSCOM Sticker Pack*\n\nPackaging ${pack.length} custom sticker(s) for export...` }, { quoted: m });
+        for (const stickerBuf of pack) {
+          try {
+            await sock.sendMessage(from, { sticker: stickerBuf });
+            await new Promise(r => setTimeout(r, 700)); // pace sending for smooth WhatsApp client rendering
+          } catch (e) {}
+        }
+        await sock.sendMessage(from, { text: `✨ *Sticker Pack Export Complete!*\n\nSuccessfully exported ${pack.length} stickers from your DANSCOM collection.` }, { quoted: m });
         break;
       }
 
