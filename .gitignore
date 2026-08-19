@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+data/
+logs/
+auth_info_baileys_*
+local_auth_fallback/

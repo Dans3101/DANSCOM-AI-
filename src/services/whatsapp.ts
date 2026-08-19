@@ -420,6 +420,7 @@ export const startWhatsAppSession = async (sessionId: string) => {
                 sess!.qr = null;
                 sess!.pairingCode = null;
                 sess!.sock = null; // Clear socket to reflect correct disconnected state in dashboard
+                sess!.isInitializing = false;
                 if (sessionId === 'default_bot') {
                     sock = null;
                 }

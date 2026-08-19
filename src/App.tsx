@@ -120,6 +120,10 @@ export default function App() {
   // --- TERMINAL MULTI-TENANCY STATES ---
   const [terminals, setTerminals] = useState<any[]>([]);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
+  const [isTerminalValidated, setIsTerminalValidated] = useState<boolean>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return !params.get('terminal') && !params.get('p');
+  });
   const [isRestrictedView, setIsRestrictedView] = useState(false);
   const [audioNotificationsEnabled, setAudioNotificationsEnabled] = useState(() => {
     return localStorage.getItem('audioNotificationsEnabled') === 'true';
@@ -157,15 +161,15 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const terminalParam = params.get('terminal');
     
-    if (isStandalone && terminalParam) {
-      setIsRestrictedView(true);
+    if (terminalParam) {
       setActiveTerminalId(terminalParam);
+      if (isStandalone) {
+        setIsRestrictedView(true);
+      }
       localStorage.setItem('last_terminal', terminalParam);
     } else {
-       const storedTerminal = localStorage.getItem('last_terminal');
-       if(storedTerminal) {
-         setActiveTerminalId(storedTerminal);
-       }
+      setActiveTerminalId(null);
+      localStorage.removeItem('last_terminal');
     }
   }, []);
   
@@ -325,6 +329,7 @@ export default function App() {
       const timeoutId = setTimeout(() => {
         setIsTimedOut(true);
         setTerminalData(prevData => prevData || { name: 'Fallback Terminal', setupFee: 0, weeklyRate: 0, id: termParam });
+        setIsTerminalValidated(true);
       }, 5000);
 
       safeFetch(`/api/terminals/${termParam}`)
@@ -332,14 +337,19 @@ export default function App() {
           clearTimeout(timeoutId);
           if (!data.error) {
             setTerminalData(data);
+          } else {
+            setTerminalData({ name: 'Fallback Terminal', setupFee: 0, weeklyRate: 0, id: termParam });
           }
+          setIsTerminalValidated(true);
         })
         .catch(err => {
           clearTimeout(timeoutId);
           console.error('Error fetching single terminal details:', err);
           setTerminalData({ name: 'Fallback Terminal', setupFee: 0, weeklyRate: 0, id: termParam });
+          setIsTerminalValidated(true);
         });
     } else {
+      setIsTerminalValidated(true);
       // 2. Load owner terminals database
       safeFetch('/api/terminals')
         .then(data => {
@@ -1506,6 +1516,17 @@ export default function App() {
 
   // --- RENDERING ISOLATED MINI-DASHBOARD PAGE ---
   if (activeTerminalId) {
+    if (!isTerminalValidated) {
+      return (
+        <div className="min-h-screen w-full bg-slate-900 text-white flex items-center justify-center">
+          <div className="text-center space-y-4">
+            <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="text-sm font-bold uppercase tracking-widest text-indigo-300">Validating Terminal Session...</p>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen w-full bg-slate-50 text-slate-900 font-sans flex flex-col justify-start overflow-x-hidden">
         {/* Isolated header so users "gets pairing codes and qr codes without having the original dashboard" */}

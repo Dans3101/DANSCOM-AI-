@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  whatsapp-bot:
+    build: .
+    container_name: whatsapp-bot
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - WHATSAPP_SESSION_DIR=/app/data/whatsapp-session
+      - GEMINI_API_KEY=your_gemini_api_key_here
+      - OWNER_NUMBER=254700000000
+      - PREFIX=.
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs

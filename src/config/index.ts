@@ -38,6 +38,8 @@ export const config = {
     ownerNumber: process.env.OWNER_NUMBER || '',
     prefix: process.env.PREFIX || '.',
     port: parseInt(process.env.PORT || '3000', 10),
+    whatsappSessionDir: process.env.WHATSAPP_SESSION_DIR || './data/whatsapp-session',
+    publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
   },
   openaiApiKey: process.env.OPENAI_API_KEY || '',
 };

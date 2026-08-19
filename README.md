@@ -1,81 +1,158 @@
-# DANSCOM 🤖
+# DANSCOM WhatsApp Automation Bot 🤖
 
-Modern, production-ready WhatsApp automation bot using Node.js, Baileys, and Firebase.
+Modern, production-ready WhatsApp automation bot built with Node.js, Baileys, Express, and Google Gemini AI. Fully independent and portable across **Render** and **Ubuntu Linux VPS** from a single GitHub codebase.
+
+---
 
 ## 🚀 Features
 - **Auto Status View & Like**: Automatically watch and react to statuses.
 - **AI Integration**: Powered by Google Gemini for smart replies and commands (`.ai`, `.gpt`).
-- **Persistent Sessions**: Auth data stored in Firebase Firestore (survives Render restarts).
+- **Persistent Sessions**: Multi-platform session persistence supporting local persistent directories (`./data/whatsapp-session`) and Firestore.
+- **Payment Integration**: PayHero M-Pesa automated billing & checkout hooks.
 - **Toggleable Settings**: Enable/disable features via `.enable [feature]` commands.
-- **Premium System**: Weekly subscription management (5 KSH/week).
-- **Analytics**: Track command usage and active users.
+- **Analytics & Health Checks**: Built-in `/health` endpoint and command tracking.
 - **Anti-Ban**: Built-in delays and human-like interaction patterns.
-- **Safety**: Rate limiting and helmet security.
+- **Security & Stability**: Rate limiting, helmet security, and graceful shutdown.
 
-### ⚠️ Key Creation Issues? (Bypass Mode)
-If your organization blocks "Service Account Key Creation", follow these steps:
-1. **Run in AI Studio**: If you are using the AI Studio Build environment, you **do not** need the private key. The bot will automatically use the project's internal credentials.
-2. **Local Development**: If you can't get a key, the bot will automatically fall back to **Local Storage** (`auth_info_baileys` folder). Note that in Render, local files are deleted on every restart, so you'll have to scan the QR code again.
-3. **Admin Request**: Ask your Workspace Administrator to grant you the `Service Account Key Admin` role or allow key creation in the IAM policies.
+---
 
-## 🛠 Setup Guide
+## ⚙️ Environment Configuration
 
-### 1. Firebase Setup
-1. Go to [Firebase Console](https://console.firebase.google.com/).
-2. Create a new project.
-3. Go to **Project Settings** > **Service Accounts**.
-4. Click **Generate New Private Key**.
-5. Copy the following from the downloaded JSON:
-   - `project_id`
-   - `private_key`
-   - `client_email`
+Copy `.env.example` to `.env` and configure your settings:
 
-### 2. Environment Variables
-Configure these in your Render deployment or `.env` file:
-- `GEMINI_API_KEY`: Your Google AI Studio API Key.
-- `FIREBASE_PROJECT_ID`: From your service account JSON.
-- `FIREBASE_PRIVATE_KEY`: From your service account JSON (replace `\n` with actual newlines).
-- `FIREBASE_CLIENT_EMAIL`: From your service account JSON.
-- `OWNER_NUMBER`: Your WhatsApp number (e.g., `254712345678`).
-- `PREFIX`: Command prefix (default: `.`).
+```env
+# GEMINI_API_KEY: Required for Gemini AI API calls.
+GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
 
-### 3. Deploy to Render
+# BOT CONFIG
+OWNER_NUMBER="254712345678"
+PREFIX="."
+PORT=3000
+WHATSAPP_SESSION_DIR="./data/whatsapp-session"
+PUBLIC_BASE_URL="https://your-domain.com"
+
+# PAYHERO PAYMENT INTEGRATION (Optional)
+PAYHERO_API_KEY=""
+PAYHERO_API_USERNAME=""
+PAYHERO_API_PASSWORD=""
+PAYHERO_CHANNEL_ID="1"
+PAYHERO_ACCOUNT_ID="9178"
+PAYHERO_LIPWA_LINK="https://lipwa.link/9178"
+PAYHERO_IS_SANDBOX="false"
+```
+
+---
+
+## 🌐 1. Render Deployment
+
+Render natively supports deployment via `render.yaml`.
+
 1. Connect your GitHub repository to Render.
-2. Render will automatically detect `render.yaml`.
-3. Add the environment variables in the Render dashboard.
-4. Once deployed, check the logs for the QR code to scan.
+2. Render automatically detects `render.yaml`, the build command (`npm install && npm run build`), and start command (`npm run start`).
+3. Add your environment variables (`GEMINI_API_KEY`, `OWNER_NUMBER`, etc.) in the Render Web Dashboard.
+4. Deploy! View the logs to scan the QR code or retrieve pairing info.
 
-### 4. Deploy to GitHub Codespaces (Alternative)
+---
 
-1. **Open in Codespaces**: Click the **Code** button in your GitHub repository and select **Codespaces** -> **New codespace**.
-2. **Environment Setup**: Once the codespace is ready, create a `.env` file in the root directory:
-   ```bash
-   touch .env
-   ```
-   Add your variables to the newly created `.env` file (refer to section 2 for the required variables: `GEMINI_API_KEY`, etc.).
-3. **Install Dependencies**:
-   ```bash
-   npm install
-   ```
-4. **Run the Bot**:
-   ```bash
-   npm run dev
-   ```
-   The bot will start, and if it needs to pair, the logs will display the QR code or prompt for phone number verification.
+## 🐧 2. Ubuntu Linux VPS Deployment
 
-## 📝 Commands
-- `.ping`: Check bot latency.
-- `.ai [query]`: Ask Gemini AI.
-- `.enable [feature]`: Toggle bot features (Owner only).
-- `.stats`: View bot usage analytics.
-- `.premium`: View premium benefits.
-- `.checksub`: Check your subscription status.
+Follow these exact steps to deploy the bot on a standard Ubuntu VPS using Node.js LTS and PM2 for continuous background operation.
 
-## 🛡 Security & Stability
-- Optimized for **Render Free Tier**.
-- Automatic reconnection on disconnect.
-- Lower memory footprint.
-- Graceful shutdown handling.
+### Step 1: Update Ubuntu & Install Prerequisites
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git curl build-essential
+```
+
+### Step 2: Install Node.js LTS (v20.x)
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+node -v
+npm -v
+```
+
+### Step 3: Clone Repository & Install Dependencies
+```bash
+git clone https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME.git danscom-bot
+cd danscom-bot
+npm install
+```
+
+### Step 4: Configure Environment Variables & Session Directory
+```bash
+cp .env.example .env
+nano .env
+```
+Ensure `PORT=3000`, `WHATSAPP_SESSION_DIR="./data/whatsapp-session"`, and your `GEMINI_API_KEY` are configured.
+
+### Step 5: Build the Application
+```bash
+npm run build
+```
+
+### Step 6: Install PM2 & Start the Bot
+```bash
+sudo npm install -g pm2
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
+```
+Follow the command output instructions given by `pm2 startup` to enable auto-restart on VPS reboot.
+
+### Step 7: Configure Nginx & UFW Firewall (Optional Reverse Proxy)
+```bash
+sudo apt install -y nginx ufw
+sudo ufw allow OpenSSH
+sudo ufw allow 'Nginx Full'
+sudo ufw enable
+```
+
+Create an Nginx server block (`/etc/nginx/sites-available/danscom`):
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+Enable the site:
+```bash
+sudo ln -s /etc/nginx/sites-available/danscom /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+---
+
+## 🩺 Health Check & Monitoring
+
+- **Health Endpoint**: `GET /health` returns:
+  ```json
+  {
+    "status": "ok",
+    "timestamp": "2026-08-16T12:00:00.000Z",
+    "uptime": 142.5
+  }
+  ```
+- **PM2 Monitoring**:
+  - View logs: `pm2 logs whatsapp-bot`
+  - Monitor CPU/RAM: `pm2 monit`
+  - Restart bot: `pm2 restart whatsapp-bot`
+
+---
+
+## 🔑 WhatsApp Authentication & Persistence
+- When starting for the first time, check `pm2 logs whatsapp-bot` or the Render console logs to view the QR code or pairing code.
+- Session authentication tokens are stored securely in `WHATSAPP_SESSION_DIR` (`./data/whatsapp-session`), ensuring sessions survive bot restarts, updates, and VPS reboots without requiring re-authentication.
 
 ---
 Built with ❤️ using Google AI Studio.
