@@ -247,37 +247,34 @@ export const initiateIntasendPayment = async (params: {
       let apiResponse: any = null;
       let usedEndpoint = payhero.apiEndpoint;
 
-      try {
-        console.log(`[PayHero] Initiating STK push via API endpoint: ${usedEndpoint}`);
-        apiResponse = await axios.post(usedEndpoint, payload, {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': authHeader
-          },
-          timeout: 10000
-        });
-      } catch (firstErr: any) {
-        // Try to fallback to a slightly different path
-        let fallbackEndpoint = usedEndpoint;
-        if (usedEndpoint.includes('/api/')) {
-            fallbackEndpoint = usedEndpoint.replace('/api/', '/');
-        } else {
-            fallbackEndpoint = usedEndpoint.replace('backend.payhero.co.ke/', 'backend.payhero.co.ke/api/');
+      const endpointsToTry = [
+        usedEndpoint,
+        usedEndpoint.includes('/api/') ? usedEndpoint.replace('/api/', '/') : usedEndpoint.replace('backend.payhero.co.ke/', 'backend.payhero.co.ke/api/'),
+        'https://backend.payhero.co.ke/api/v1/payments',
+        'https://backend.payhero.co.ke/v1/payments'
+      ];
+
+      let lastErr: any = null;
+      for (const ep of endpointsToTry) {
+        try {
+          console.log(`[PayHero] Initiating STK push via API endpoint: ${ep}`);
+          apiResponse = await axios.post(ep, payload, {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': authHeader
+            },
+            timeout: 10000
+          });
+          usedEndpoint = ep;
+          break;
+        } catch (err: any) {
+          lastErr = err;
+          console.warn(`[PayHero Endpoint Failed] ${ep}: ${err.message}`);
         }
-        
-        if (fallbackEndpoint !== usedEndpoint) {
-            usedEndpoint = fallbackEndpoint;
-            console.log(`[PayHero Retry] Primary endpoint failed, retrying with: ${usedEndpoint}`);
-            apiResponse = await axios.post(usedEndpoint, payload, {
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': authHeader
-              },
-              timeout: 10000
-            });
-        } else {
-            throw firstErr;
-        }
+      }
+
+      if (!apiResponse && lastErr) {
+        throw lastErr;
       }
 
       if (apiResponse && apiResponse.data) {

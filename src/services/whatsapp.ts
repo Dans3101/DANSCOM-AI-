@@ -54,6 +54,7 @@ export interface SessionInfo {
 }
 
 const sessions = new Map<string, SessionInfo>();
+const pairingLocks = new Map<string, boolean>();
 let sock: WASocket | null = null;
 
 export const getExistingSessions = async (): Promise<string[]> => {
@@ -165,85 +166,66 @@ export const getSessionsState = () => {
 };
 
 export const requestPairingCode = async (number: string, sessionId: string = 'default_bot') => {
-    let sess = sessions.get(sessionId);
-    
-    // Check if session is fully connected and active
-    const isConnected = sess && sess.connectionState === 'open' && !!sess.sock?.user;
-    
-    if (!isConnected) {
-        console.log(`[Pairing ${sessionId}] Session is not connected. Purging local auth state quickly for fresh pairing keys...`);
-        const sessObj = sessions.get(sessionId);
-        if (sessObj) {
-            sessObj.isInitializing = false;
-            if (sessObj.sock) {
-                try {
-                    sessObj.sock.end(new Error('Session reset'));
-                } catch (e) {}
-            }
-            sessions.delete(sessionId);
-        }
-        // Fast local auth folder clean
-        try {
-            const fs = await import('fs');
-            const path = await import('path');
-            const dirs = [`auth_info_baileys_${sessionId}`, path.join(process.cwd(), 'local_auth_fallback', sessionId)];
-            for (const d of dirs) {
-                if (fs.existsSync(d)) {
-                    fs.rmSync(d, { recursive: true, force: true });
-                }
-            }
-        } catch (e) {}
-
-        // Trigger full delete in background non-blocking
-        deleteWhatsAppSession(sessionId).catch(() => {});
-        sess = undefined;
-        await new Promise(resolve => setTimeout(resolve, 300));
-    } else {
-        throw new Error('Already connected');
+    if (pairingLocks.get(sessionId)) {
+        throw new Error('Pairing request already in progress for this session. Please wait.');
     }
-
-    // Since we successfully purged the session above, we now start it fresh
-    if (!sess) {
-        await startWhatsAppSession(sessionId);
-        sess = sessions.get(sessionId);
-    }
-    
-    let retry = 0;
-    while ((!sess || !sess.sock) && retry < 10) {
-        await new Promise(resolve => setTimeout(resolve, 300));
-        sess = sessions.get(sessionId);
-        retry++;
-    }
-
-    if (!sess || !sess.sock) throw new Error('WhatsApp socket failed to initialize');
-    if (sess.sock.user) throw new Error('Already connected');
-    
-    console.log(`[Pairing ${sessionId}] Warming up socket connection for 1 second before requesting pairing code...`);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    sess.pairingNumber = number.replace(/[^0-9]/g, '');
-    console.log(`[Pairing ${sessionId}] Requesting code for: ${sess.pairingNumber}`);
-    
-    let code: string | undefined = undefined;
-    let attempts = 0;
-    const maxAttempts = 3;
-
-    while (attempts < maxAttempts) {
-        try {
-            attempts++;
-            console.log(`[Pairing ${sessionId}] Attempt ${attempts} requesting pairing code...`);
-            code = await sess.sock.requestPairingCode(sess.pairingNumber);
-            if (code) break;
-        } catch (err: any) {
-            console.warn(`[Pairing ${sessionId}] Attempt ${attempts} failed: ${err.message}`);
-            if (attempts >= maxAttempts) {
-                throw new Error(err.message || 'Failed to request pairing code. Unable to connect to WhatsApp servers.');
-            }
-            await new Promise(resolve => setTimeout(resolve, 3000));
-        }
-    }
+    pairingLocks.set(sessionId, true);
 
     try {
+        let sess = sessions.get(sessionId);
+        const isConnected = sess && sess.connectionState === 'open' && !!sess.sock?.user;
+        
+        if (isConnected) {
+            throw new Error('Already connected');
+        }
+
+        // Use existing session / socket or start one without deleting auth folder
+        if (!sess || !sess.sock) {
+            console.log(`[Pairing ${sessionId}] Session socket not active. Bringing online without deleting auth...`);
+            await startWhatsAppSession(sessionId);
+            sess = sessions.get(sessionId);
+        }
+
+        let retry = 0;
+        while ((!sess || !sess.sock) && retry < 15) {
+            await new Promise(resolve => setTimeout(resolve, 400));
+            sess = sessions.get(sessionId);
+            retry++;
+        }
+
+        if (!sess || !sess.sock) throw new Error('WhatsApp socket failed to initialize');
+        if (sess.sock.user) throw new Error('Already connected');
+        
+        // Brief pause to allow socket to initialize connection pipeline
+        console.log(`[Pairing ${sessionId}] Waiting 1.5s for socket initialization...`);
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        console.log(`[Pairing ${sessionId}] Requesting pairing code for number: ${number}`);
+
+        sess.pairingNumber = number.replace(/[^0-9]/g, '');
+        console.log(`[Pairing ${sessionId}] Requesting code for clean number: ${sess.pairingNumber}`);
+        
+        let code: string | undefined = undefined;
+        let attempts = 0;
+        const maxAttempts = 4;
+
+        while (attempts < maxAttempts) {
+            try {
+                attempts++;
+                console.log(`[Pairing ${sessionId}] Attempt ${attempts} requesting pairing code...`);
+                code = await sess.sock.requestPairingCode(sess.pairingNumber);
+                if (code) break;
+            } catch (err: any) {
+                console.warn(`[Pairing ${sessionId}] Attempt ${attempts} failed: ${err.message}`);
+                if (attempts >= maxAttempts) {
+                    throw new Error(err.message || 'Failed to request pairing code. Unable to connect to WhatsApp servers.');
+                }
+                const backoffMs = Math.min(1500 * Math.pow(2, attempts - 1), 10000);
+                console.log(`[Pairing ${sessionId}] Retrying in ${backoffMs}ms with exponential backoff...`);
+                await new Promise(resolve => setTimeout(resolve, backoffMs));
+            }
+        }
+
         sess.pairingCode = code || null;
         sess.pairingCreatedAt = Date.now();
         console.log(`[Pairing ${sessionId}] Code received: ${code}`);
@@ -259,9 +241,8 @@ export const requestPairingCode = async (number: string, sessionId: string = 'de
         }
 
         return code;
-    } catch (error: any) {
-        console.error(`[Pairing ${sessionId}] Error:`, error);
-        throw new Error(error.message || 'Failed to request pairing code. Try again in 10 seconds.');
+    } finally {
+        pairingLocks.set(sessionId, false);
     }
 };
 
@@ -356,6 +337,11 @@ export const deleteWhatsAppSession = async (sessionId: string) => {
 
 export const startWhatsAppSession = async (sessionId: string) => {
     let sess = sessions.get(sessionId);
+    if (sess && sess.sock && (sess.connectionState === 'open' || sess.connectionState === 'connecting' || sess.isInitializing)) {
+        console.log(`>> Socket [${sessionId}] is already active or connecting/initializing. Reusing existing socket.`);
+        return sess.sock;
+    }
+
     if (!sess) {
         sess = {
             sessionId,
@@ -406,15 +392,8 @@ export const startWhatsAppSession = async (sessionId: string) => {
 
         let authState;
         try {
-            const isReady = await checkFirestoreReady();
-            console.log(`>> Firestore readiness state: ${isReady}`);
-            if (sessionsDb && isReady) {
-                console.log(`>> Using Firestore for session storage [Session: ${sessionId}]`);
-                authState = await useFirestoreAuthState(sessionId);
-            } else {
-                console.log(`>> Using local file system for session storage [Session: ${sessionId}]`);
-                authState = await useMultiFileAuthState(`auth_info_baileys_${sessionId}`);
-            }
+            console.log(`>> Using local file system for session storage [Session: ${sessionId}]`);
+            authState = await useMultiFileAuthState(`auth_info_baileys_${sessionId}`);
         } catch (error) {
             console.error('>> Auth state initialization failed:', error);
             authState = await useMultiFileAuthState(`auth_info_baileys_${sessionId}`);
@@ -478,9 +457,10 @@ export const startWhatsAppSession = async (sessionId: string) => {
                 const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
                 const errMessage = (lastDisconnect?.error as any)?.message || '';
                 const isQrTimeout = statusCode === 408 || errMessage.includes('QR refs attempts ended');
+                const isConflict = statusCode === 440 || errMessage.includes('conflict');
                 let shouldReconnect = statusCode !== DisconnectReason.loggedOut && !isQrTimeout;
                 
-                console.log(`>> Connection closed for session: [${sessionId}] (Reason: ${statusCode}, Message: ${errMessage}). Reconnecting: ${shouldReconnect}`);
+                console.log(`>> Connection closed for session: [${sessionId}] (Reason: ${statusCode}, Message: ${errMessage}, Conflict: ${isConflict}). Reconnecting: ${shouldReconnect}`);
                 
                 if (isQrTimeout) {
                     console.log(`>> [${sessionId}] QR session timed out (408 QR refs attempts ended). Cleaning up auth state and pausing auto-restart...`);
@@ -526,7 +506,11 @@ export const startWhatsAppSession = async (sessionId: string) => {
                 }
 
                 if (shouldReconnect) {
-                    setTimeout(() => startWhatsAppSession(sessionId), 5000);
+                    const delay = isConflict ? 15000 : 5000;
+                    if (isConflict) {
+                        console.log(`>> [${sessionId}] Conflict (440) detected. Waiting 15s for old connection socket to fully release before reconnecting...`);
+                    }
+                    setTimeout(() => startWhatsAppSession(sessionId), delay);
                 }
             } else if (connection === 'open') {
                 sess!.qr = null;
@@ -712,6 +696,10 @@ const startConnectionMonitor = () => {
         try {
             // 1. Maintain default_bot active
             let def = sessions.get('default_bot');
+            if (def && (def.pairingCode || def.isInitializing || def.connectionState === 'connecting')) {
+                console.log('[Connection Monitor] default_bot pairing or connection in progress, skipping monitor revival.');
+                return;
+            }
             if (def && def.pairingCreatedAt && Date.now() - def.pairingCreatedAt > 48 * 60 * 60 * 1000) {
                  console.log('[Connection Monitor] default_bot pairing code expired, deleting...');
                  await deleteWhatsAppSession('default_bot').catch(() => {});
@@ -720,7 +708,7 @@ const startConnectionMonitor = () => {
             if (!def && !sessions.has('default_bot')) {
                 console.log('[Connection Monitor] default_bot session is missing, bringing it online...');
                 await startWhatsAppSession('default_bot').catch(() => {});
-            } else if (def && !def.sock && !def.isInitializing && !def.qrTimedOut) {
+            } else if (def && !def.sock && !def.isInitializing && !def.pairingCode && def.connectionState !== 'connecting' && !def.qrTimedOut) {
                 console.log('[Connection Monitor] default_bot is currently uninitialized, automatically reviving...');
                 await startWhatsAppSession('default_bot').catch(() => {});
             }
@@ -730,6 +718,7 @@ const startConnectionMonitor = () => {
             for (const sessId of activeDbSessions) {
                 if (sessId === 'default_bot') continue;
                 let sess = sessions.get(sessId);
+                if (sess && (sess.pairingCode || sess.isInitializing || sess.connectionState === 'connecting')) continue;
                 if (sess && sess.pairingCreatedAt && Date.now() - sess.pairingCreatedAt > 48 * 60 * 60 * 1000) {
                      console.log(`[Connection Monitor] Session [${sessId}] pairing code expired, deleting...`);
                      await deleteWhatsAppSession(sessId).catch(() => {});
@@ -738,7 +727,7 @@ const startConnectionMonitor = () => {
                 if (!sess && !sessions.has(sessId)) {
                     console.log(`[Connection Monitor] Saved session [${sessId}] was missing from memory. Auto-loading...`);
                     await startWhatsAppSession(sessId).catch(() => {});
-                } else if (sess && !sess.sock && !sess.isInitializing && !sess.qrTimedOut) {
+                } else if (sess && !sess.sock && !sess.isInitializing && !sess.pairingCode && sess.connectionState !== 'connecting' && !sess.qrTimedOut) {
                     console.log(`[Connection Monitor] Session [${sessId}] socket is missing from memory. Reviving...`);
                     await startWhatsAppSession(sessId).catch(() => {});
                 }

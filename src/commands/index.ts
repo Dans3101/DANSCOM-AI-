@@ -1426,29 +1426,37 @@ _Configure and manage your personalized AI agents_
       case 'ytmp3': {
         const querySong = args.join(' ');
         if (!querySong) {
-          return sock.sendMessage(from, { text: '⚠️ Please provide a song name or streaming web link!' }, { quoted: m });
+          return sock.sendMessage(from, { text: '⚠️ Please provide a song name or YouTube/video web link!' }, { quoted: m });
         }
 
-        await sock.sendMessage(from, { text: `⏳ *Fetching and playing audio track:* "${querySong}"... 🎵\nSearching high-fidelity streams from audio servers...` }, { quoted: m });
+        await sock.sendMessage(from, { text: `⏳ *Processing media track:* "${querySong}"... 🎵\nExtracting clean downloadable MP3 audio stream...` }, { quoted: m });
         
         let audioUrl: string | null = null;
         let titleSong = querySong;
+        let videoUrl: string | null = null;
 
-        // Try yt-search + YTMP3 extraction first
+        const isUrl = querySong.startsWith('http://') || querySong.startsWith('https://');
+
         try {
-          const ytSearch = (await import('yt-search')).default;
-          const searchRes = await ytSearch(querySong);
-          if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
-            const video = searchRes.videos[0];
-            titleSong = video.title || querySong;
-            const videoUrl = video.url;
+          if (isUrl) {
+            videoUrl = querySong;
+          } else {
+            const ytSearch = (await import('yt-search')).default;
+            const searchRes = await ytSearch(querySong);
+            if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
+              const video = searchRes.videos[0];
+              titleSong = video.title || querySong;
+              videoUrl = video.url;
+            }
+          }
 
+          if (videoUrl) {
             // Try API A: Delirius API ytmp3
             try {
               const res = await fetch(`https://deliriussapi-oficial.vercel.app/tools/ytmp3?url=${encodeURIComponent(videoUrl)}`);
               if (res.ok) {
                 const data = await res.json();
-                audioUrl = data.result?.download?.url || data.result?.url;
+                audioUrl = data.result?.download?.url || data.result?.url || data.result?.audio;
               }
             } catch (e) {}
 
@@ -1459,7 +1467,7 @@ _Configure and manage your personalized AI agents_
                 if (res.ok) {
                   const data = await res.json();
                   const result = data.result || data.data;
-                  audioUrl = result?.url || result?.mp3 || result?.link;
+                  audioUrl = result?.url || result?.mp3 || result?.link || result?.audio;
                 }
               } catch (e) {}
             }
@@ -1470,17 +1478,29 @@ _Configure and manage your personalized AI agents_
                 const res = await fetch(`https://widipe.com/download/ytmp3?url=${encodeURIComponent(videoUrl)}`);
                 if (res.ok) {
                   const data = await res.json();
-                  audioUrl = data.result?.url || data.result?.audio;
+                  audioUrl = data.result?.url || data.result?.audio || data.result?.link;
+                }
+              } catch (e) {}
+            }
+
+            // Try API D: Botcahx ytmp3
+            if (!audioUrl) {
+              try {
+                const res = await fetch(`https://api.botcahx.eu.org/api/downloader/ytmp3?url=${encodeURIComponent(videoUrl)}&apikey=QA9M6U`);
+                if (res.ok) {
+                  const data = await res.json();
+                  const result = data.result || data.data;
+                  audioUrl = result?.url || result?.mp3 || result?.link || result?.audio;
                 }
               } catch (e) {}
             }
           }
         } catch (err: any) {
-          console.warn('[Music Downloader yt-search error]:', err.message);
+          console.warn('[Music Downloader extraction error]:', err.message);
         }
 
-        // Try API 1: Siputzx Play API
-        if (!audioUrl) {
+        // Fallback to play search APIs if direct YTMP3 failed
+        if (!audioUrl && !isUrl) {
           try {
             const res = await fetch(`https://api.siputzx.my.id/api/ytplay?query=${encodeURIComponent(querySong)}`);
             if (res.ok) {
@@ -1491,72 +1511,11 @@ _Configure and manage your personalized AI agents_
                 audioUrl = result.downloadUrl || result.url || result.link || (result.download && (result.download.url || result.download));
               }
             }
-          } catch (err: any) {
-            console.warn('[Music Downloader] Siputzx API failed:', err.message);
-          }
-        }
-
-        // Try API 2: Agatz Play API
-        if (!audioUrl) {
-          try {
-            const res = await fetch(`https://api.agatz.xyz/api/ytplay?message=${encodeURIComponent(querySong)}`);
-            if (res.ok) {
-              const data = await res.json();
-              const result = data.result || data.data;
-              if (result) {
-                titleSong = result.title || titleSong;
-                audioUrl = result.audio || result.url || result.link;
-              }
-            }
-          } catch (err: any) {
-            console.warn('[Music Downloader] Agatz API failed:', err.message);
-          }
-        }
-
-        // Try API 3: widipe.com ytplay
-        if (!audioUrl) {
-          try {
-            const res = await fetch(`https://widipe.com/ytplay?query=${encodeURIComponent(querySong)}`);
-            if (res.ok) {
-              const data = await res.json();
-              if (data.status && data.result) {
-                titleSong = data.result.title || titleSong;
-                audioUrl = data.result.download?.url || data.result.url;
-              }
-            }
-          } catch (err: any) {
-            console.warn('[Music Downloader] Widipe API failed:', err.message);
-          }
-        }
-
-        // Try API 4: botcahx play
-        if (!audioUrl) {
-          try {
-            const res = await fetch(`https://api.botcahx.eu.org/api/search/youtube?q=${encodeURIComponent(querySong)}`);
-            if (res.ok) {
-              const data = await res.json();
-              if (data.status && data.result && data.result[0]) {
-                const videoUrl = data.result[0].url;
-                titleSong = data.result[0].title || titleSong;
-                
-                let dlUrl = `https://api.botcahx.eu.org/api/downloader/ytmp3?url=${encodeURIComponent(videoUrl)}&apikey=QA9M6U`;
-                let dlRes = await fetch(dlUrl);
-                if (dlRes.ok) {
-                  const dlData = await dlRes.json();
-                  const dlResult = dlData.result || dlData.data;
-                  if (dlResult) {
-                    audioUrl = dlResult.url || dlResult.mp3 || dlResult.link;
-                  }
-                }
-              }
-            }
-          } catch (err: any) {
-            console.warn('[Music Downloader] Botcahx API failed:', err.message);
-          }
+          } catch (e) {}
         }
 
         if (!audioUrl) {
-          return sock.sendMessage(from, { text: `❌ Could not find a downloadable MP3 stream for "${querySong}". Please try another song title or provide a direct web URL.` }, { quoted: m });
+          return sock.sendMessage(from, { text: `❌ Could not extract a downloadable MP3 stream for "${querySong}". Please try another song title or direct video URL.` }, { quoted: m });
         }
 
         let sentOk = false;
