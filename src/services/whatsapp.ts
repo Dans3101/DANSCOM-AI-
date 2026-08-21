@@ -170,14 +170,34 @@ export const requestPairingCode = async (number: string, sessionId: string = 'de
     // Check if session is fully connected and active
     const isConnected = sess && sess.connectionState === 'open' && !!sess.sock?.user;
     
-    // If not connected, force delete and clear any previous session (both locally and in Firestore)
-    // to ensure completely fresh, unregistered credentials that won't throw 'Precondition Required'.
     if (!isConnected) {
-        console.log(`[Pairing ${sessionId}] Session is not connected. Purging auth state (memory/file/firestore) to guarantee fresh pairing keys...`);
-        await deleteWhatsAppSession(sessionId).catch(() => {});
+        console.log(`[Pairing ${sessionId}] Session is not connected. Purging local auth state quickly for fresh pairing keys...`);
+        const sessObj = sessions.get(sessionId);
+        if (sessObj) {
+            sessObj.isInitializing = false;
+            if (sessObj.sock) {
+                try {
+                    sessObj.sock.end(new Error('Session reset'));
+                } catch (e) {}
+            }
+            sessions.delete(sessionId);
+        }
+        // Fast local auth folder clean
+        try {
+            const fs = await import('fs');
+            const path = await import('path');
+            const dirs = [`auth_info_baileys_${sessionId}`, path.join(process.cwd(), 'local_auth_fallback', sessionId)];
+            for (const d of dirs) {
+                if (fs.existsSync(d)) {
+                    fs.rmSync(d, { recursive: true, force: true });
+                }
+            }
+        } catch (e) {}
+
+        // Trigger full delete in background non-blocking
+        deleteWhatsAppSession(sessionId).catch(() => {});
         sess = undefined;
-        // Hold for 3 seconds to ensure all asynchronous Firestore deletes and file operations are finished
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise(resolve => setTimeout(resolve, 300));
     } else {
         throw new Error('Already connected');
     }
@@ -189,8 +209,8 @@ export const requestPairingCode = async (number: string, sessionId: string = 'de
     }
     
     let retry = 0;
-    while ((!sess || !sess.sock) && retry < 30) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+    while ((!sess || !sess.sock) && retry < 10) {
+        await new Promise(resolve => setTimeout(resolve, 300));
         sess = sessions.get(sessionId);
         retry++;
     }
@@ -198,16 +218,32 @@ export const requestPairingCode = async (number: string, sessionId: string = 'de
     if (!sess || !sess.sock) throw new Error('WhatsApp socket failed to initialize');
     if (sess.sock.user) throw new Error('Already connected');
     
-    // Wait for the socket connection to establish network handshake and register its presence on WhatsApp servers.
-    // 5 seconds of warm-up delay reliably permits the background socket to complete its TLS negotiaton and connection handshake.
-    console.log(`[Pairing ${sessionId}] Warming up socket connection for 5 seconds before requesting pairing code...`);
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    console.log(`[Pairing ${sessionId}] Warming up socket connection for 1 second before requesting pairing code...`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     sess.pairingNumber = number.replace(/[^0-9]/g, '');
     console.log(`[Pairing ${sessionId}] Requesting code for: ${sess.pairingNumber}`);
     
+    let code: string | undefined = undefined;
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (attempts < maxAttempts) {
+        try {
+            attempts++;
+            console.log(`[Pairing ${sessionId}] Attempt ${attempts} requesting pairing code...`);
+            code = await sess.sock.requestPairingCode(sess.pairingNumber);
+            if (code) break;
+        } catch (err: any) {
+            console.warn(`[Pairing ${sessionId}] Attempt ${attempts} failed: ${err.message}`);
+            if (attempts >= maxAttempts) {
+                throw new Error(err.message || 'Failed to request pairing code. Unable to connect to WhatsApp servers.');
+            }
+            await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+    }
+
     try {
-        const code = await sess.sock.requestPairingCode(sess.pairingNumber);
         sess.pairingCode = code || null;
         sess.pairingCreatedAt = Date.now();
         console.log(`[Pairing ${sessionId}] Code received: ${code}`);
@@ -402,8 +438,8 @@ export const startWhatsAppSession = async (sessionId: string) => {
             browser: Browsers.ubuntu('Chrome'),
             generateHighQualityLinkPreview: true,
             syncFullHistory: false,
-            connectTimeoutMs: 60000,
-            keepAliveIntervalMs: 15000,
+            connectTimeoutMs: 120000,
+            keepAliveIntervalMs: 25000,
         });
 
         sess.sock = currentSock;
