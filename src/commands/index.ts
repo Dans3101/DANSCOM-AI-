@@ -57,6 +57,68 @@ An automated payment pop-up of *5 KES* has been requested directly on phone *+${
   }
 };
 
+async function convertToWebpSticker(imageBuffer: Buffer): Promise<Buffer> {
+  try {
+    const FormData = (await import('form-data')).default;
+    const form = new FormData();
+    form.append('reqtype', 'fileupload');
+    form.append('fileToUpload', imageBuffer, { filename: 'image.jpg', contentType: 'image/jpeg' });
+    
+    const uploadRes = await fetch('https://catbox.moe/user/api.php', {
+      method: 'POST',
+      body: form as any
+    });
+    if (uploadRes.ok) {
+      const publicUrl = (await uploadRes.text()).trim();
+      if (publicUrl && publicUrl.startsWith('http')) {
+        const stickerRes = await fetch(`https://api.siputzx.my.id/api/maker/sticker?url=${encodeURIComponent(publicUrl)}`);
+        if (stickerRes.ok) {
+          const contentType = stickerRes.headers.get('content-type');
+          if (contentType && contentType.includes('image/webp')) {
+            const arrayBuf = await stickerRes.arrayBuffer();
+            return Buffer.from(arrayBuf);
+          }
+          const data = await stickerRes.json();
+          const resultUrl = data.result || data.data || data.url;
+          if (resultUrl && typeof resultUrl === 'string') {
+            const bufRes = await fetch(resultUrl);
+            if (bufRes.ok) {
+              const arrayBuf = await bufRes.arrayBuffer();
+              return Buffer.from(arrayBuf);
+            }
+          }
+        }
+      }
+    }
+  } catch (e: any) {
+    console.warn('[Sticker Converter] Catbox/Siputzx conversion failed:', e.message);
+  }
+
+  // Fallback sticker API
+  try {
+    const FormData = (await import('form-data')).default;
+    const form = new FormData();
+    form.append('file', imageBuffer, { filename: 'image.jpg', contentType: 'image/jpeg' });
+    const res = await fetch('https://widipe.com/download/sticker', {
+      method: 'POST',
+      body: form as any
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.result && data.result.url) {
+        const bufRes = await fetch(data.result.url);
+        if (bufRes.ok) {
+          return Buffer.from(await bufRes.arrayBuffer());
+        }
+      }
+    }
+  } catch (e: any) {
+    console.warn('[Sticker Converter] Widipe fallback failed:', e.message);
+  }
+
+  return imageBuffer;
+}
+
 async function downloadUniversalVideo(urlStr: string): Promise<{ videoUrl: string | null; caption: string }> {
   let videoUrl: string | null = null;
   let captionText = `✅ *Media Download Completed!* ⚡\nSource: ${urlStr}\n\nDownloaded successfully via DANSCOM High-Speed Downloader Pipeline!`;
@@ -276,6 +338,29 @@ async function downloadUniversalVideo(urlStr: string): Promise<{ videoUrl: strin
         }
       } catch (e: any) {}
     }
+  }
+
+  // Fallback to Botcahx API
+  if (!videoUrl) {
+    try {
+      let endpoint = `https://api.botcahx.eu.org/api/downloader/ytmp4?url=${encodeURIComponent(urlStr)}&apikey=QA9M6U`;
+      if (lowerUrl.includes('facebook.com') || lowerUrl.includes('fb.watch') || lowerUrl.includes('fb.gg')) {
+        endpoint = `https://api.botcahx.eu.org/api/downloader/fbdown?url=${encodeURIComponent(urlStr)}&apikey=QA9M6U`;
+      } else if (lowerUrl.includes('instagram.com')) {
+        endpoint = `https://api.botcahx.eu.org/api/downloader/igdl?url=${encodeURIComponent(urlStr)}&apikey=QA9M6U`;
+      } else if (lowerUrl.includes('tiktok.com')) {
+        endpoint = `https://api.botcahx.eu.org/api/downloader/tiktok?url=${encodeURIComponent(urlStr)}&apikey=QA9M6U`;
+      }
+      const res = await fetch(endpoint);
+      if (res.ok) {
+        const data = await res.json();
+        const result = data.result || data.data;
+        if (result) {
+          videoUrl = result.url || result.video || result.hd || result.sd || result.nowatermark || result.link;
+          if (result.title) captionText = `✅ *Media Downloaded:* "${result.title}"\n\n🎯 Delivered via DANSCOM Downloader.`;
+        }
+      }
+    } catch (e: any) {}
   }
 
   return { videoUrl, caption: captionText };
@@ -1349,19 +1434,66 @@ _Configure and manage your personalized AI agents_
         let audioUrl: string | null = null;
         let titleSong = querySong;
 
-        // Try API 1: Siputzx Play API (Extremely fast & reliable 2026 endpoint)
+        // Try yt-search + YTMP3 extraction first
         try {
-          const res = await fetch(`https://api.siputzx.my.id/api/ytplay?query=${encodeURIComponent(querySong)}`);
-          if (res.ok) {
-            const data = await res.json();
-            const result = data.result || data.data || data;
-            if (result) {
-              titleSong = result.title || titleSong;
-              audioUrl = result.downloadUrl || result.url || result.link || (result.download && (result.download.url || result.download));
+          const ytSearch = (await import('yt-search')).default;
+          const searchRes = await ytSearch(querySong);
+          if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
+            const video = searchRes.videos[0];
+            titleSong = video.title || querySong;
+            const videoUrl = video.url;
+
+            // Try API A: Delirius API ytmp3
+            try {
+              const res = await fetch(`https://deliriussapi-oficial.vercel.app/tools/ytmp3?url=${encodeURIComponent(videoUrl)}`);
+              if (res.ok) {
+                const data = await res.json();
+                audioUrl = data.result?.download?.url || data.result?.url;
+              }
+            } catch (e) {}
+
+            // Try API B: Siputzx ytmp3
+            if (!audioUrl) {
+              try {
+                const res = await fetch(`https://api.siputzx.my.id/api/downloader/ytmp3?url=${encodeURIComponent(videoUrl)}`);
+                if (res.ok) {
+                  const data = await res.json();
+                  const result = data.result || data.data;
+                  audioUrl = result?.url || result?.mp3 || result?.link;
+                }
+              } catch (e) {}
+            }
+
+            // Try API C: Widipe ytmp3
+            if (!audioUrl) {
+              try {
+                const res = await fetch(`https://widipe.com/download/ytmp3?url=${encodeURIComponent(videoUrl)}`);
+                if (res.ok) {
+                  const data = await res.json();
+                  audioUrl = data.result?.url || data.result?.audio;
+                }
+              } catch (e) {}
             }
           }
         } catch (err: any) {
-          console.warn('[Music Downloader] Siputzx API failed:', err.message);
+          console.warn('[Music Downloader yt-search error]:', err.message);
+        }
+
+        // Try API 1: Siputzx Play API
+        if (!audioUrl) {
+          try {
+            const res = await fetch(`https://api.siputzx.my.id/api/ytplay?query=${encodeURIComponent(querySong)}`);
+            if (res.ok) {
+              const data = await res.json();
+              const result = data.result || data.data || data;
+              if (result) {
+                titleSong = result.title || titleSong;
+                audioUrl = result.downloadUrl || result.url || result.link || (result.download && (result.download.url || result.download));
+              }
+            }
+          } catch (err: any) {
+            console.warn('[Music Downloader] Siputzx API failed:', err.message);
+          }
         }
 
         // Try API 2: Agatz Play API
@@ -1397,23 +1529,7 @@ _Configure and manage your personalized AI agents_
           }
         }
 
-        // Try API 4: erdwpe play
-        if (!audioUrl) {
-          try {
-            const res = await fetch(`https://api.erdwpe.com/api/ytdl/play?query=${encodeURIComponent(querySong)}`);
-            if (res.ok) {
-              const data = await res.json();
-              if (data.status && data.result) {
-                titleSong = data.result.title || titleSong;
-                audioUrl = data.result.audio?.url || data.result.url || data.result.video?.url;
-              }
-            }
-          } catch (err: any) {
-            console.warn('[Music Downloader] ErdWpe API failed:', err.message);
-          }
-        }
-
-        // Try API 5: botcahx play
+        // Try API 4: botcahx play
         if (!audioUrl) {
           try {
             const res = await fetch(`https://api.botcahx.eu.org/api/search/youtube?q=${encodeURIComponent(querySong)}`);
@@ -1425,10 +1541,6 @@ _Configure and manage your personalized AI agents_
                 
                 let dlUrl = `https://api.botcahx.eu.org/api/downloader/ytmp3?url=${encodeURIComponent(videoUrl)}&apikey=QA9M6U`;
                 let dlRes = await fetch(dlUrl);
-                if (!dlRes.ok) {
-                  dlUrl = `https://api.botcahx.eu.org/api/dowloader/ytmp3?url=${encodeURIComponent(videoUrl)}&apikey=QA9M6U`;
-                  dlRes = await fetch(dlUrl);
-                }
                 if (dlRes.ok) {
                   const dlData = await dlRes.json();
                   const dlResult = dlData.result || dlData.data;
@@ -1443,16 +1555,33 @@ _Configure and manage your personalized AI agents_
           }
         }
 
-        // Play generic preview only as actual local final resort
         if (!audioUrl) {
-          audioUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
-          await sock.sendMessage(from, { text: `⚠️ *High-fidelity servers are currently busy.* Playing generic preview: \`SoundHelix-Song-1.mp3\` for query: "${querySong}".` }, { quoted: m });
+          return sock.sendMessage(from, { text: `❌ Could not find a downloadable MP3 stream for "${querySong}". Please try another song title or provide a direct web URL.` }, { quoted: m });
         }
 
         let sentOk = false;
         try {
-          const audioBuffer = await downloadMediaBuffer(audioUrl, 25000);
+          const audioBuffer = await downloadMediaBuffer(audioUrl, 30000);
           if (audioBuffer && audioBuffer.length > 50) {
+            const sanitizedTitle = (titleSong || 'song').replace(/[^a-zA-Z0-9 _-]/g, '').trim();
+            // Send as downloadable MP3 file document
+            await sock.sendMessage(from, {
+              document: audioBuffer,
+              mimetype: 'audio/mpeg',
+              fileName: `${sanitizedTitle}.mp3`,
+              caption: `🎵 *Here is your downloadable MP3 file:* "${titleSong}"\n📥 Tap the file above to download and save to your device storage!`,
+              contextInfo: {
+                externalAdReply: {
+                  title: titleSong,
+                  body: 'DANSCOM MP3 Downloader Suite',
+                  mediaType: 2,
+                  thumbnailUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500',
+                  sourceUrl: 'https://ais-pre-lo7lp5bzig74auqtidjmrp-359576585250.europe-west1.run.app'
+                }
+              }
+            }, { quoted: m });
+
+            // Also send playable voice/audio note
             await sock.sendMessage(from, { 
               audio: audioBuffer,
               mimetype: 'audio/mp4',
@@ -1933,8 +2062,10 @@ _Tune in or type *.live* to check updates!_`;
             buffer = Buffer.concat([buffer, chunk]);
           }
 
+          const webpBuffer = await convertToWebpSticker(buffer);
+
           await sock.sendMessage(from, { 
-            sticker: buffer 
+            sticker: webpBuffer 
           }, { quoted: m });
 
           // Save to user sticker pack cache
@@ -1942,7 +2073,7 @@ _Tune in or type *.live* to check updates!_`;
             userStickerPacks.set(from, []);
           }
           const userPack = userStickerPacks.get(from)!;
-          userPack.push(buffer);
+          userPack.push(webpBuffer);
           if (userPack.length > 20) userPack.shift(); // keep last 20 stickers
 
           await sock.sendMessage(from, { text: `✨ *Sticker added to your Pack!* (${userPack.length}/20 saved)\n📦 Type \`.stickerpack\` to export your entire WhatsApp sticker pack collection.` }, { quoted: m });
