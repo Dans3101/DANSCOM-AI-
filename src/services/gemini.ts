@@ -24,14 +24,26 @@ const getGenAI = (): GoogleGenAI => {
 export const geminiAssistant = async (prompt: string, systemInstruction?: string) => {
   try {
     const ai = getGenAI();
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        systemInstruction: systemInstruction || "You are a helpful WhatsApp assistant bot. Be concise and friendly.",
-      },
-    });
-    return response.text;
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3.7-flash",
+        contents: prompt,
+        config: {
+          systemInstruction: systemInstruction || "You are a helpful WhatsApp assistant bot. Be concise and friendly.",
+        },
+      });
+      return response.text;
+    } catch (primaryErr: any) {
+      console.warn('Gemini 3.7 Flash failed, attempting fallback to gemini-flash-latest:', primaryErr.message);
+      const fallbackResponse = await ai.models.generateContent({
+        model: "gemini-flash-latest",
+        contents: prompt,
+        config: {
+          systemInstruction: systemInstruction || "You are a helpful WhatsApp assistant bot. Be concise and friendly.",
+        },
+      });
+      return fallbackResponse.text;
+    }
   } catch (error) {
     console.error('Gemini API Error:', error);
     return null;

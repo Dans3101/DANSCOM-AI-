@@ -11,6 +11,7 @@ import admin from 'firebase-admin';
 import fs from 'fs';
 import path from 'path';
 import { agentHandler } from '../utils/agent.js';
+import { handleEcosystemCommand } from '../utils/advancedEcosystem.js';
 
 const userStickerPacks = new Map<string, Buffer[]>();
 
@@ -387,15 +388,14 @@ export const processCommand = async (
     return;
   }
   
-  // Update last seen and usage count
-  await updateUser(sender, { 
+  // Update last seen and usage count asynchronously
+  updateUser(sender, { 
     lastSeen: new Date().toISOString(),
     usageCount: (user?.usageCount || 0) + 1
-  });
+  }).catch(() => {});
   
   // Delegate to the advanced multi-purpose ecosystem systems module
   try {
-    const { handleEcosystemCommand } = await import('../utils/advancedEcosystem.js');
     const wasHandled = await handleEcosystemCommand(sock, m, command, args, context);
     if (wasHandled) {
       return;

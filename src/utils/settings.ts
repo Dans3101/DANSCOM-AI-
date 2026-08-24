@@ -21,14 +21,18 @@ export const isEnabled = async (feature: string, sessionId: string = 'default_bo
   const cacheKey = `${sessionId}_${feature}`;
   if (cache[cacheKey] !== undefined) return cache[cacheKey];
   
+  const defaultVal = feature.startsWith('danscom_group_enabled_') ? true : (DEFAULTS[feature] ?? false);
+
   if (!getIsFirestoreUsable() || !settingsDb) {
-    return DEFAULTS[feature] ?? false;
+    cache[cacheKey] = defaultVal;
+    return defaultVal;
   }
 
   try {
     const doc = await settingsDb.doc(cacheKey).get();
     if (doc.exists) {
-      cache[cacheKey] = doc.data()?.value ?? (DEFAULTS[feature] ?? false);
+      const storedVal = doc.data()?.value;
+      cache[cacheKey] = storedVal !== undefined ? storedVal : defaultVal;
       return cache[cacheKey];
     }
   } catch (err: any) {
@@ -36,7 +40,7 @@ export const isEnabled = async (feature: string, sessionId: string = 'default_bo
     handleFirestoreError(err);
   }
   
-  cache[cacheKey] = DEFAULTS[feature] ?? false;
+  cache[cacheKey] = defaultVal;
   return cache[cacheKey];
 };
 

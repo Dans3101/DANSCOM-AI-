@@ -142,26 +142,33 @@ export const loadEcosystemDb = async (): Promise<Record<string, UserProfile>> =>
   return ecosystemDb;
 };
 
+let syncTimeout: NodeJS.Timeout | null = null;
+const scheduleLocalSync = () => {
+  if (syncTimeout) return;
+  syncTimeout = setTimeout(async () => {
+    syncTimeout = null;
+    try {
+      await fs.promises.writeFile(STORE_PATH, JSON.stringify(ecosystemDb, null, 2));
+    } catch (err: any) {
+      console.error('[Ecosystem DB Backup failed]:', err.message);
+    }
+  }, 1000);
+};
+
 // Instantly sync one active user's profile state to persistent stores
 export const syncUserProfile = async (profile: UserProfile): Promise<void> => {
   profile.lastActive = Date.now();
   ecosystemDb[profile.id] = profile;
 
-  // 1. Sync to local JSON
-  try {
-    await fs.promises.writeFile(STORE_PATH, JSON.stringify(ecosystemDb, null, 2));
-  } catch (err: any) {
-    console.error('[Ecosystem DB Backup failed]:', err.message);
-  }
+  // 1. Non-blocking debounced sync to local JSON
+  scheduleLocalSync();
 
-  // 2. Sync to Cloud Firestore
+  // 2. Non-blocking sync to Cloud Firestore
   if (getIsFirestoreUsable() && db) {
-    try {
-      await db.collection('ecosystem_users').doc(profile.id).set(profile, { merge: true });
-    } catch (err: any) {
+    db.collection('ecosystem_users').doc(profile.id).set(profile, { merge: true }).catch((err: any) => {
       console.warn('[Ecosystem DB Cloud Sync Skip]: Firestore currently throttled or offline.', err.message);
       handleFirestoreError(err);
-    }
+    });
   }
 };
 
@@ -276,6 +283,20 @@ export const renderVisualMeter = (value: number, max: number, barSize = 10): str
   return `[${'█'.repeat(filledCount)}${'░'.repeat(emptyCount)}] ${Math.round(ratio * 100)}%`;
 };
 
+const ECOSYSTEM_COMMANDS_SET = new Set([
+  'register', 'profile', 'dashboard', 'mydata', 'level', 'badges', 'verify', 'referral', 'invite', 'stats', 'agent',
+  'ask', 'chat', 'translate', 'resume', 'code', 'website', 'business', 'research', 'homework', 'marketing', 'email',
+  'ai', 'transcribe', 'speak', 'analyzedoc', 'analyze', 'bizplan', 'legal', 'tutor', 'image', 'generate',
+  'wallet', 'balance', 'deposit', 'withdraw', 'send', 'receive', 'transactions', 'history', 'statement',
+  'savings', 'save', 'chama', 'marketplace', 'market', 'shop', 'products', 'buy', 'cart', 'checkout',
+  'sell', 'vendor', 'orders', 'inventory', 'sales', 'staff', 'crm', 'booking', 'appointment',
+  'upload', 'files', 'storage', 'fetch', 'quiz', 'test', 'study', 'notes', 'course', 'flashcard',
+  'calc', 'budget', 'tax', 'loan', 'reputation', 'upvote', 'downvote', 'poll', 'donate', 'fundraise',
+  'events', 'flow', 'trigger', 'subscribe', 'pricing', 'vip', 'plans', 'expense', 'report',
+  'contract', 'portfolio', 'feedback', 'support', 'ticket', 'helpdesk', 'backup', 'restore', 'sync',
+  'ban', 'unban', 'logs'
+]);
+
 // The Master Controller routing table for all unique subsystems
 export const handleEcosystemCommand = async (
   sock: WASocket,
@@ -284,8 +305,25 @@ export const handleEcosystemCommand = async (
   args: string[],
   context: { isOwner: boolean; isGroup: boolean; sender: string }
 ): Promise<boolean> => {
+  const lowercaseCmd = command.toLowerCase();
+  const isEcosystemCmd = ECOSYSTEM_COMMANDS_SET.has(lowercaseCmd);
+
   const from = m.key.remoteJid!;
   const senderId = context.sender.replace(/[^0-9@.]/g, '');
+
+  if (!isEcosystemCmd) {
+    // Fast path: check in-memory automation triggers without heavy DB work
+    const cachedProfile = ecosystemDb[senderId];
+    if (cachedProfile && cachedProfile.automation) {
+      const matchedRule = cachedProfile.automation.find(auto => auto.trigger === lowercaseCmd && auto.isActive);
+      if (matchedRule) {
+        await sock.sendMessage(from, { text: matchedRule.replyText }, { quoted: m });
+        return true;
+      }
+    }
+    return false;
+  }
+
   const profile = await getOrCreateProfile(senderId);
 
   // Instantly upgrade schemas of any legacy profiles in real-time
@@ -306,12 +344,12 @@ export const handleEcosystemCommand = async (
     if (profile.level === 3) profile.badges.push('Veteran System Engineer');
     else if (profile.level === 5) profile.badges.push('Elite Validator');
     else if (profile.level === 10) profile.badges.push('DANSCOM Grand Architect');
-    await sock.sendMessage(from, {
+    sock.sendMessage(from, {
       text: `🎉 *PROMOTOR UPGRADE TRIGGERED!* 🎉\n🧑‍💻 @${profile.phone} leveled up to Rank *Lv.${profile.level}*!\n\n🎁 Reward credited: *+200 Credits* inside Wallet.\n🏆 New stats logged in the Cloud profile!`,
       mentions: [context.sender]
-    }, { quoted: m });
+    }, { quoted: m }).catch(() => {});
   }
-  await syncUserProfile(profile);
+  syncUserProfile(profile);
 
   // Commands Mapping Router
   switch (command) {
