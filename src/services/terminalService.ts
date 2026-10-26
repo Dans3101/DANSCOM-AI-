@@ -1,6 +1,8 @@
 import { terminalsDb, paymentsDb, premiumDb, settingsDb, getIsFirestoreUsable, handleFirestoreError } from '../database/firebase.js';
 import admin from 'firebase-admin';
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
 
 export interface Terminal {
   id: string;
@@ -30,6 +32,8 @@ export interface PaymentTransaction {
 const inMemoryTerminals = new Map<string, Terminal>();
 const inMemoryPayments = new Map<string, PaymentTransaction>();
 
+const TERMINALS_CACHE_FILE = path.join(process.cwd(), 'terminals_cache.json');
+
 // Initialize default terminal for seamless operations if needed
 const DEFAULT_TERMINAL_ID = 'main_terminal';
 inMemoryTerminals.set(DEFAULT_TERMINAL_ID, {
@@ -41,6 +45,30 @@ inMemoryTerminals.set(DEFAULT_TERMINAL_ID, {
   createdAt: Date.now(),
   sessionIds: ['default_bot']
 });
+
+// Load persistent disk cache for terminals
+try {
+  if (fs.existsSync(TERMINALS_CACHE_FILE)) {
+    const raw = fs.readFileSync(TERMINALS_CACHE_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      parsed.forEach((t: Terminal) => {
+        if (t && t.id) {
+          const existing = inMemoryTerminals.get(t.id);
+          const combinedSessionIds = Array.from(new Set([...(existing?.sessionIds || []), ...(t.sessionIds || [])]));
+          inMemoryTerminals.set(t.id, { ...t, sessionIds: combinedSessionIds });
+        }
+      });
+    }
+  }
+} catch (e) {}
+
+export const persistTerminalsToDisk = () => {
+  try {
+    const list = Array.from(inMemoryTerminals.values());
+    fs.writeFileSync(TERMINALS_CACHE_FILE, JSON.stringify(list, null, 2));
+  } catch (e) {}
+};
 
 export const getPayheroConfig = () => {
   const apiKey = process.env.PAYHERO_API_KEY || '';
@@ -159,6 +187,7 @@ export const createTerminal = async (terminalData: Omit<Terminal, 'createdAt' | 
   }
 
   inMemoryTerminals.set(newTerminal.id, newTerminal);
+  persistTerminalsToDisk();
   return newTerminal;
 };
 
@@ -166,12 +195,26 @@ export const createTerminal = async (terminalData: Omit<Terminal, 'createdAt' | 
  * Associate a bot session to a terminal.
  */
 export const addSessionToTerminal = async (terminalId: string, sessionId: string): Promise<void> => {
-  const terminal = await getTerminalById(terminalId);
-  if (!terminal) return;
+  let terminal = await getTerminalById(terminalId);
+  if (!terminal) {
+    terminal = {
+      id: terminalId,
+      name: `Terminal ${terminalId}`,
+      operatorName: 'Terminal Operator',
+      weeklyRate: 5,
+      setupFee: 0,
+      createdAt: Date.now(),
+      sessionIds: [sessionId]
+    };
+    inMemoryTerminals.set(terminalId, terminal);
+    persistTerminalsToDisk();
+    return;
+  }
 
   if (!terminal.sessionIds.includes(sessionId)) {
     terminal.sessionIds.push(sessionId);
     inMemoryTerminals.set(terminalId, terminal);
+    persistTerminalsToDisk();
 
     if (getIsFirestoreUsable() && terminalsDb) {
       try {
@@ -564,38 +607,56 @@ export interface SessionMetadata {
   clientPhone: string;
   disabled?: boolean;
   controlCode?: string;
+  welcomeSent?: boolean;
 }
 
 const inMemoryMetadata = new Map<string, SessionMetadata>();
+const METADATA_FILE = path.join(process.cwd(), 'session_metadata.json');
+
+// Load cached metadata on startup
+try {
+  if (fs.existsSync(METADATA_FILE)) {
+    const raw = fs.readFileSync(METADATA_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    Object.entries(parsed).forEach(([k, v]) => {
+      inMemoryMetadata.set(k, v as SessionMetadata);
+    });
+  }
+} catch (e) {}
+
+const persistMetadata = () => {
+  try {
+    const obj: Record<string, SessionMetadata> = {};
+    inMemoryMetadata.forEach((v, k) => {
+      obj[k] = v;
+    });
+    fs.writeFileSync(METADATA_FILE, JSON.stringify(obj, null, 2));
+  } catch (e) {}
+};
 
 export const saveSessionMetadata = async (
   sessionId: string, 
   clientName: string, 
   clientPhone: string, 
   disabled?: boolean, 
-  controlCode?: string
+  controlCode?: string,
+  welcomeSent?: boolean
 ): Promise<SessionMetadata> => {
   const existing = await getSessionMetadata(sessionId);
   const code = controlCode || existing?.controlCode || Math.floor(100000 + Math.random() * 900000).toString();
   const isCurrentlyDisabled = disabled !== undefined ? disabled : (existing?.disabled || false);
+  const isWelcomeSent = welcomeSent !== undefined ? welcomeSent : (existing?.welcomeSent || false);
 
   const updated: SessionMetadata = { 
     clientName, 
     clientPhone, 
     disabled: isCurrentlyDisabled, 
-    controlCode: code 
+    controlCode: code,
+    welcomeSent: isWelcomeSent
   };
 
   inMemoryMetadata.set(sessionId, updated);
-  /*
-  if (getIsFirestoreUsable() && settingsDb) {
-    try {
-      await settingsDb.doc(`metadata_${sessionId}`).set(updated);
-    } catch (e: any) {
-      console.warn(`[TerminalService] Failed to save session metadata for ${sessionId}:`, e.message);
-    }
-  }
-  */
+  persistMetadata();
   return updated;
 };
 

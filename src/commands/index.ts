@@ -1,5 +1,5 @@
 import { WASocket, proto } from '@whiskeysockets/baileys';
-import { setFeature, isEnabled } from '../utils/settings.js';
+import { setFeature, isEnabled, isGroupActivated, setGroupActivated } from '../utils/settings.js';
 import { incrementCommandCount } from '../utils/commandTracker.js';
 import { logCommandExecution } from '../database/firestoreStore.js';
 import { getUser, updateUser } from '../database/userStore.js';
@@ -2189,6 +2189,39 @@ _Tune in or type *.live* to check updates!_`;
         break;
       }
 
+      case 'settings':
+      case 'status': {
+        const sId = (sock as any).sessionId || 'default_bot';
+        const { getAllFeatures } = await import('../utils/settings.js');
+        const feats = await getAllFeatures(sId);
+        
+        let settingsText = `⚙️ *DANSCOM SYSTEM CONFIGURATION DASHBOARD* ⚙️\n` +
+          `• *Session ID:* \`${sId}\`\n\n` +
+          `📊 *Feature States:*\n` +
+          `• 📖 Auto Read (*.autoread*): ${feats.auto_read ? '🟢 ENABLED' : '🔴 DISABLED'}\n` +
+          `• ⌨️ Fake Typing (*.autotyping*): ${feats.fake_typing ? '🟢 ENABLED' : '🔴 DISABLED'}\n` +
+          `• 🎙️ Fake Recording (*.autorecord*): ${feats.fake_recording ? '🟢 ENABLED' : '🔴 DISABLED'}\n` +
+          `• 🗑️ Anti-Delete (*.antidelete*): ${feats.see_deleted_messages ? '🟢 ENABLED' : '🔴 DISABLED'}\n` +
+          `• 👀 Auto Status View (*.autostatus*): ${feats.auto_status_view ? '🟢 ENABLED' : '🔴 DISABLED'}\n` +
+          `• ❤️ Auto Status Like (*.autostatuslike*): ${feats.auto_status_like ? '🟢 ENABLED' : '🔴 DISABLED'}\n` +
+          `• 🤖 AI Smart Reply (*.chatbot*): ${feats.ai_smart_reply ? '🟢 ENABLED' : '🔴 DISABLED'}\n` +
+          `• 📵 Anti-Call (*.anticall*): ${feats.anticall ? '🟢 ENABLED' : '🔴 DISABLED'}\n` +
+          `• 🔗 Anti-Link (*.antilink*): ${feats.antilink ? '🟢 ENABLED' : '🔴 DISABLED'}\n` +
+          `• 🌐 Public Mode (*.mode*): ${feats.public_mode ? '🟢 PUBLIC (All users)' : '🔴 PRIVATE (Owner only)'}\n\n` +
+          `💡 *Usage:* Use \`.enable [feature]\` or \`.disable [feature]\`\n(e.g., \`.enable autoread\`, \`.disable antilink\`, \`.autoread on\`, \`.autoread off\`)`;
+        
+        if (context.isGroup) {
+          const isGroupBotOn = await isGroupActivated(from, sId);
+          settingsText += `\n\n👥 *Group Status:* ${isGroupBotOn ? '🟢 ACTIVE (.deactivate to mute)' : '🔴 INACTIVE (.activate to enable)'}`;
+        }
+        await sock.sendMessage(from, { text: settingsText }, { quoted: m });
+        break;
+      }
+
+      case 'enable':
+      case 'disable':
+      case 'on':
+      case 'off':
       case 'autoread':
       case 'autotyping':
       case 'autorecord':
@@ -2196,25 +2229,160 @@ _Tune in or type *.live* to check updates!_`;
       case 'autostatus':
       case 'autostatuslike':
       case 'chatbot':
-      case 'anticall': {
-        if (!context.isOwner) return sock.sendMessage(from, { text: '❌ Owner command privileges required!' }, { quoted: m });
+      case 'anticall':
+      case 'antilink': {
         const sId = (sock as any).sessionId || 'default_bot';
+        
+        // Anti-link can be toggled by group admin in a group or bot owner
+        const isAntilinkCmd = command === 'antilink' || args[0]?.toLowerCase() === 'antilink';
+        if (isAntilinkCmd && context.isGroup) {
+          const { checkIfAdmin } = await import('../handlers/messageHandler.js');
+          const isAdmin = await checkIfAdmin(sock, from, context.sender, context.isOwner);
+          if (!isAdmin) {
+            return sock.sendMessage(from, { text: '❌ Only group administrators can configure antilink!' }, { quoted: m });
+          }
+        } else if (!context.isOwner) {
+          return sock.sendMessage(from, { text: '❌ Owner command privileges required!' }, { quoted: m });
+        }
+
         const featMap: Record<string, string> = {
           'autoread': 'auto_read',
+          'auto_read': 'auto_read',
           'autotyping': 'fake_typing',
+          'fake_typing': 'fake_typing',
           'autorecord': 'fake_recording',
+          'fake_recording': 'fake_recording',
           'antidelete': 'see_deleted_messages',
+          'see_deleted_messages': 'see_deleted_messages',
           'autostatus': 'auto_status_view',
+          'auto_status_view': 'auto_status_view',
           'autostatuslike': 'auto_status_like',
+          'auto_status_like': 'auto_status_like',
           'chatbot': 'ai_smart_reply',
-          'anticall': 'anticall'
+          'ai_smart_reply': 'ai_smart_reply',
+          'smartreply': 'ai_smart_reply',
+          'anticall': 'anticall',
+          'antilink': 'antilink',
+          'public': 'public_mode',
+          'public_mode': 'public_mode',
+          'autobio': 'auto_bio',
+          'auto_bio': 'auto_bio',
+          'save_view_once': 'save_view_once',
+          'viewonce': 'save_view_once'
         };
-        const activeFeat = featMap[command];
-        if (activeFeat) {
-          const currentlyActive = await isEnabled(activeFeat, sId);
-          await setFeature(activeFeat, !currentlyActive, sId);
-          await sock.sendMessage(from, { text: `⚙️ *DANSCOM System config updated:* Feature *${activeFeat}* is now toggled to [ *${!currentlyActive ? 'ENABLED ✅' : 'DISABLED ❌'}* ]!` }, { quoted: m });
+
+        let targetFeatName = '';
+        let desiredState: boolean | null = null;
+
+        if (command === 'enable' || command === 'disable' || command === 'on' || command === 'off') {
+          const targetInput = args[0]?.toLowerCase();
+          if (!targetInput || !featMap[targetInput]) {
+            return sock.sendMessage(from, { 
+              text: `⚠️ Please specify a valid feature to ${command}!\n\n*Available features:*\n` +
+                `• autoread\n• autotyping\n• autorecord\n• antidelete\n• autostatus\n• autostatuslike\n• chatbot\n• anticall\n• antilink\n• autobio\n• viewonce\n• public\n\nExample: \`.${command} autoread\`` 
+            }, { quoted: m });
+          }
+          targetFeatName = featMap[targetInput];
+          desiredState = (command === 'enable' || command === 'on');
+        } else {
+          targetFeatName = featMap[command];
+          const arg0 = args[0]?.toLowerCase();
+          if (arg0 === 'on' || arg0 === 'enable' || arg0 === '1' || arg0 === 'true') {
+            desiredState = true;
+          } else if (arg0 === 'off' || arg0 === 'disable' || arg0 === '0' || arg0 === 'false') {
+            desiredState = false;
+          } else {
+            // No argument supplied: toggle state
+            const current = await isEnabled(targetFeatName, sId);
+            desiredState = !current;
+          }
         }
+
+        if (targetFeatName) {
+          await setFeature(targetFeatName, desiredState, sId);
+          if (!desiredState && (targetFeatName === 'fake_typing' || targetFeatName === 'fake_recording')) {
+            await sock.sendPresenceUpdate('paused', from).catch(() => {});
+          }
+          await sock.sendMessage(from, { 
+            text: `⚙️ *DANSCOM System Configuration Updated:* \n\nFeature *${targetFeatName}* is now set to [ *${desiredState ? 'ENABLED 🟢' : 'DISABLED 🔴'}* ]!` 
+          }, { quoted: m });
+        }
+        break;
+      }
+
+      case 'activate':
+      case 'activatebot':
+      case 'act':
+      case 'deactivate':
+      case 'deactivatebot':
+      case 'deact':
+      case 'bot':
+      case 'danscom': {
+        const sId = (sock as any).sessionId || 'default_bot';
+        const mode = args[0]?.toLowerCase();
+        const isAct = command === 'activate' || command === 'activatebot' || command === 'act' || mode === 'on' || mode === 'activate';
+        const isDeact = command === 'deactivate' || command === 'deactivatebot' || command === 'deact' || mode === 'off' || mode === 'deactivate';
+
+        if (context.isGroup) {
+          const { checkIfAdmin } = await import('../handlers/messageHandler.js');
+          const isAdmin = await checkIfAdmin(sock, from, context.sender, context.isOwner);
+          if (!isAdmin) {
+            // Strictly stay silent for non-admins as requested: zero responses or alerts
+            return;
+          }
+          if (isAct) {
+            await setGroupActivated(from, true, sId);
+            const activateNotice = `╭━━━〔 DANSCOM BOT 〕━━━╮\n\n✅ Connection Established Successfully\n\n🤖 Bot: DANSCOM Bot\n📡 Status: Active & Online\n🔗 Session: "${sId}"\n👥 Group Status: Activated 🟢\n\nWelcome to DANSCOM Bot — your intelligent assistant for seamless automation and efficient command execution.\n\n⚙️ GETTING STARTED\nTo view the command menu and explore available features, send:\n\n➤ ".menu"\n➤ "/menu"\n\n📌 Simply send either command in this chat to get started.\n\n╰━━ DANSCOM | Smart Automation ━━╯`;
+            return sock.sendMessage(from, { text: activateNotice }, { quoted: m });
+          } else if (isDeact) {
+            await setGroupActivated(from, false, sId);
+            const deactNotice = `╭━━━〔 DANSCOM BOT 〕━━━╮\n\n🛑 Group Deactivated Successfully\n\n🤖 Bot: DANSCOM Bot\n📡 Group Status: Inactive 🔴\n\nThe bot has been deactivated in this group. It will not respond to any commands until reactivated by an admin using ".activate".\n\n╰━━ DANSCOM | Smart Automation ━━╯`;
+            return sock.sendMessage(from, { text: deactNotice }, { quoted: m });
+          } else {
+            const currentStatus = await isGroupActivated(from, sId);
+            return sock.sendMessage(from, { text: `⚙️ *DANSCOM Group Status:* *${currentStatus ? 'ACTIVE 🟢' : 'INACTIVE 🔴'}*\n\n• Type \`.activate\` to enable.\n• Type \`.deactivate\` to disable.` }, { quoted: m });
+          }
+        } else {
+          // Direct Chat
+          if (!context.isOwner) return sock.sendMessage(from, { text: '❌ Owner only command in private chat!' }, { quoted: m });
+          if (mode === 'on' || isAct) {
+            await setFeature('public_mode', true, sId);
+            return sock.sendMessage(from, { text: '✅ *DANSCOM ONLINE:* Public bot mode enabled.' }, { quoted: m });
+          } else if (mode === 'off' || isDeact) {
+            await setFeature('public_mode', false, sId);
+            return sock.sendMessage(from, { text: '🛑 *DANSCOM PRIVATE:* Bot mode set to Owner-only.' }, { quoted: m });
+          } else {
+            const isPub = await isEnabled('public_mode', sId);
+            return sock.sendMessage(from, { text: `⚙️ *DANSCOM Mode:* *${isPub ? 'PUBLIC 🟢' : 'PRIVATE (Owner Only) 🔴'}*` }, { quoted: m });
+          }
+        }
+      }
+
+      case 'mode': {
+        const sId = (sock as any).sessionId || 'default_bot';
+        const targetMode = args[0]?.toLowerCase();
+        if (targetMode === 'public') {
+          if (!context.isOwner) return sock.sendMessage(from, { text: '❌ Owner only command!' }, { quoted: m });
+          await setFeature('public_mode', true, sId);
+          return sock.sendMessage(from, { text: '⚙️ *DANSCOM Mode:* Set to [ *PUBLIC 🟢* ]! Anyone can use bot commands.' }, { quoted: m });
+        } else if (targetMode === 'private') {
+          if (!context.isOwner) return sock.sendMessage(from, { text: '❌ Owner only command!' }, { quoted: m });
+          await setFeature('public_mode', false, sId);
+          return sock.sendMessage(from, { text: '⚙️ *DANSCOM Mode:* Set to [ *PRIVATE 🔴* ]! Only owners can use bot commands.' }, { quoted: m });
+        } else {
+          const current = await isEnabled('public_mode', sId);
+          return sock.sendMessage(from, { 
+            text: `⚙️ *Current Bot Access Level:* [ *${current ? 'PUBLIC 🟢' : 'PRIVATE 🔴'}* ]\n\n• Type \`.mode public\` to allow all users.\n• Type \`.mode private\` for owner-only access.` 
+          }, { quoted: m });
+        }
+      }
+
+      case 'reset': {
+        if (!context.isOwner) return sock.sendMessage(from, { text: '❌ Owner only command!' }, { quoted: m });
+        const sId = (sock as any).sessionId || 'default_bot';
+        const { resetFeatures } = await import('../utils/settings.js');
+        await resetFeatures(sId);
+        await sock.sendMessage(from, { text: '⚙️ *Settings Reset:* All system feature toggles have been successfully restored to their default state.' }, { quoted: m });
         break;
       }
 
@@ -2891,19 +3059,6 @@ _Tune in or type *.live* to check updates!_`;
         } catch (e) {
           await sock.sendMessage(from, { text: '❌ Movie databases connection busy.' }, { quoted: m });
         }
-        break;
-      }
-
-      case 'enable':
-      case 'disable': {
-        if (!context.isOwner) return sock.sendMessage(from, { text: 'Owner only command!' }, { quoted: m });
-        if (args.length === 0) return sock.sendMessage(from, { text: 'Please specify a feature!' }, { quoted: m });
-        let feature = args[0];
-        if (feature === 'smartreply') feature = 'ai_smart_reply';
-        const value = command === 'enable';
-        const sId = (sock as any).sessionId || 'default_bot';
-        await setFeature(feature, value, sId);
-        await sock.sendMessage(from, { text: `Feature *${feature}* has been ${value ? 'enabled' : 'disabled'} for this bot JID! ✅` }, { quoted: m });
         break;
       }
 
@@ -3643,12 +3798,18 @@ An M-Pesa SIM ToolKit popup has been triggered directly on the phone *+${targetP
 
       case 'mode': {
         if (!context.isOwner) return sock.sendMessage(from, { text: '❌ *Access Denied!*' }, { quoted: m });
+        const sId = (sock as any).sessionId || 'default_bot';
         const selectedMode = args[0]?.toLowerCase();
         if (selectedMode !== 'public' && selectedMode !== 'private') {
-          return sock.sendMessage(from, { text: '⚠️ Specify mode: `.mode public` or `.mode private`' }, { quoted: m });
+          const isPub = await isEnabled('public_mode', sId);
+          return sock.sendMessage(from, { 
+            text: `⚙️ *Current Mode:* *${isPub ? 'PUBLIC 🟢' : 'PRIVATE 🔴'}*\n\nUsage:\n• \`.mode public\` - Allow all group & direct chat users to use bot commands\n• \`.mode private\` - Restrict bot usage exclusively to bot owner/admin` 
+          }, { quoted: m });
         }
+        const isPublic = selectedMode === 'public';
         global.botMode = selectedMode;
-        await sock.sendMessage(from, { text: `⚙️ *DANSCOM Server Mode:* Successfully toggled to *${selectedMode.toUpperCase()}* mode.` }, { quoted: m });
+        await setFeature('public_mode', isPublic, sId);
+        await sock.sendMessage(from, { text: `⚙️ *DANSCOM Server Mode:* Successfully set to *${selectedMode.toUpperCase()}* mode [ ${isPublic ? '🟢 PUBLIC' : '🔴 PRIVATE'} ].` }, { quoted: m });
         break;
       }
 

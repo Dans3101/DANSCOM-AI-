@@ -580,6 +580,13 @@ export default function App() {
     setIsRequestingPairing(true);
     setPairingError(null);
     try {
+      // 1. Ensure the session exists and starts on backend
+      await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: pairingSessionId })
+      }).catch(() => {});
+
       const res = await fetch('/api/request-pairing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -594,7 +601,20 @@ export default function App() {
       const data = await res.json();
       if (data.code) {
         setConnection(prev => ({ ...prev, pairingCode: data.code }));
-        setSessions(prev => prev.map(s => s.sessionId === pairingSessionId ? { ...s, pairingCode: data.code } : s));
+        setSessions(prev => {
+          const exists = prev.some(s => s.sessionId === pairingSessionId);
+          if (!exists) {
+            return [...prev, { sessionId: pairingSessionId, pairingCode: data.code, connected: false }];
+          }
+          return prev.map(s => s.sessionId === pairingSessionId ? { ...s, pairingCode: data.code } : s);
+        });
+
+        // Refresh sessions list
+        const sRes = await fetch('/api/sessions');
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (Array.isArray(sData)) setSessions(sData);
+        }
       } else {
         setPairingError(data.error || 'Failed to generate code. Is your phone number correct?');
       }
@@ -1047,57 +1067,94 @@ export default function App() {
                 <p className="text-xs font-mono">
                   <strong className="font-sans uppercase">WhatsApp Number:</strong> {clientPhoneInput || activeSessState?.clientPhone || activeSessState?.pairingNumber || "Connected JID"}
                 </p>
+                <p className="text-xs">
+                  <strong className="uppercase">Session Key:</strong> <span className="font-mono text-indigo-600 font-bold">{pairingViewSessionId}</span>
+                </p>
               </div>
-              <p className="text-[10.5px] text-slate-500 uppercase font-black tracking-widest leading-relaxed bg-amber-50 rounded-xl py-3.5 px-4 border border-amber-100/60 transition-all max-w-lg mx-auto text-amber-800 text-center">
-                🔒 SECURITY ENFORCED: This pairing link is now locked because it is in use. It cannot connect other bots unless this bot session is disconnected or deleted from the main terminal.
-              </p>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-3">
+                <button
+                  onClick={() => setIsPairingViewOnly(false)}
+                  className="px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-sm"
+                >
+                  ⬅️ Back to Terminal
+                </button>
+                <button
+                  onClick={() => {
+                    const newId = `bot_${Math.floor(1000 + Math.random() * 9000)}`;
+                    setPairingViewSessionId(newId);
+                    setIsDetailsSubmitted(false);
+                    setLocalPairingCode(null);
+                    setClientNameInput('');
+                    setClientPhoneInput('');
+                    setPairingInputPhone('');
+                  }}
+                  className="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-md"
+                >
+                  ➕ Link Another Device (Multiple Accounts)
+                </button>
+              </div>
             </div>
           ) : !isDetailsSubmitted ? (
             /* PLACE TO ENTER NAME AND PHONE NUMBER - CLEAN AND RESTRICTED */
-            <div className="bg-white rounded-[2.5rem] border border-slate-200/60 shadow-xl p-8 max-w-md mx-auto space-y-6">
-              <div className="text-center space-y-1">
-                <h3 className="text-base font-black text-slate-800 uppercase tracking-tight">Enter Your Details</h3>
-                <p className="text-xs text-slate-400">Provide your name and phone number to start pairing</p>
+            <div className="bg-white rounded-[2.5rem] border-2 border-slate-200 shadow-2xl p-8 max-w-md mx-auto space-y-6">
+              <div className="text-center space-y-1.5 pb-2 border-b border-slate-100">
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+                  ⚡ SECURE SETUP CONSOLE
+                </span>
+                <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight mt-1">Enter Device Operator Details</h3>
+                <p className="text-xs text-slate-500 font-medium">Verify your details below to generate instant pairing credentials</p>
               </div>
 
               <form onSubmit={handleDetailsSubmit} className="space-y-4 text-left">
                 <div>
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5 label text-left">Operator Name</label>
+                  <label className="text-xs font-black text-slate-800 uppercase tracking-wider block mb-1.5 label text-left">Operator Name</label>
                   <input 
                     type="text" 
-                    placeholder="e.g. John Doe"
+                    placeholder="e.g. John Doe" 
                     required
                     value={clientNameInput}
                     onChange={(e) => setClientNameInput(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all text-slate-900"
+                    className="w-full bg-white border-2 border-slate-300 rounded-2xl py-3.5 px-4 text-sm font-bold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition-all shadow-sm"
                   />
                 </div>
 
-                <div>
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5 label text-left">Country Code</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. 254"
-                    required
-                    value={countryCode}
-                    onChange={(e) => setCountryCode(e.target.value.replace(/[^0-9+]/g, ''))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono text-slate-900"
-                  />
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-1">
+                    <label className="text-xs font-black text-slate-800 uppercase tracking-wider block mb-1.5 label text-left">Code</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. 254"
+                      required
+                      value={countryCode}
+                      onChange={(e) => setCountryCode(e.target.value.replace(/[^0-9+]/g, ''))}
+                      className="w-full bg-white border-2 border-slate-300 rounded-2xl py-3.5 px-3 text-sm font-bold focus:outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition-all font-mono text-slate-900 text-center shadow-sm"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-xs font-black text-slate-800 uppercase tracking-wider block mb-1.5 label text-left">WhatsApp Number</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. 712345678"
+                      required
+                      value={clientPhoneInput}
+                      onChange={(e) => setClientPhoneInput(e.target.value.replace(/[^0-9]/g, ''))}
+                      className="w-full bg-white border-2 border-slate-300 rounded-2xl py-3.5 px-4 text-sm font-bold focus:outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition-all font-mono text-slate-900 shadow-sm"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5 label text-left">WhatsApp Mobile Number</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. 712345678"
-                    required
-                    value={clientPhoneInput}
-                    onChange={(e) => setClientPhoneInput(e.target.value.replace(/[^0-9]/g, ''))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono text-slate-900"
-                  />
-                </div>
+
+                {/* Highly Visible Real-time Input Review */}
+                {(clientNameInput || clientPhoneInput) && (
+                  <div className="p-3.5 bg-slate-50 border-2 border-slate-200 rounded-2xl space-y-1">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">Current Input Preview:</span>
+                    <p className="text-xs font-bold text-slate-900">
+                      👤 {clientNameInput || '...'} • 📞 <span className="font-mono text-emerald-700 font-black">{countryCode ? `+${countryCode.replace('+', '')}` : ''} {clientPhoneInput || '...'}</span>
+                    </p>
+                  </div>
+                )}
 
                 {pairingError && (
-                  <div className="bg-rose-50 border border-rose-100 text-rose-600 p-3 rounded-xl text-[10px] font-bold text-center">
+                  <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3.5 rounded-xl text-xs font-bold text-center">
                     {pairingError}
                   </div>
                 )}
@@ -1668,44 +1725,85 @@ export default function App() {
                 </div>
               )}
 
-              {/* Step 1 input fields */}
-              <div className="space-y-3">
+              {/* Step 1 input fields - High Visibility */}
+              <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <div className="flex justify-between items-center mb-2">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Bot Key Identifier (lowercase)</label>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="text-xs font-black text-slate-900 uppercase tracking-wider block">
+                        🤖 Bot Key Identifier (Unique Device ID)
+                      </label>
                       <button
                         type="button"
-                        onClick={() => setTerminalBotId(`bot_${Math.floor(1000 + Math.random() * 9000)}`)}
-                        className="text-[9px] font-black text-emerald-600 hover:text-emerald-700 uppercase tracking-wider cursor-pointer bg-transparent border-none p-0"
+                        onClick={() => {
+                          const newKey = `bot_${Math.floor(1000 + Math.random() * 9000)}`;
+                          setTerminalBotId(newKey);
+                          setTerminalActiveSession(null);
+                        }}
+                        className="text-[11px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-wider cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 transition-all"
                       >
-                        🎲 Generate Unique Key
+                        🎲 Generate New Key
                       </button>
                     </div>
                     <input 
                       type="text" 
-                      placeholder="e.g. mpesa_bot"
+                      placeholder="e.g. device_1, bot_alice"
                       value={terminalBotId}
                       onChange={(e) => setTerminalBotId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono"
+                      className="w-full bg-white border-2 border-slate-400 rounded-2xl py-3.5 px-4 text-base font-bold text-slate-950 placeholder:text-slate-400 focus:outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 transition-all font-mono shadow-sm"
                     />
+                    <span className="text-[10px] text-slate-500 font-bold mt-1 block">Each linked phone uses its own unique Key.</span>
                   </div>
 
                   <div>
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2 font-sans">WhatsApp JID/Mobile Number</label>
+                    <label className="text-xs font-black text-slate-900 uppercase tracking-wider block mb-1.5 font-sans">
+                      📱 WhatsApp Mobile Number (With Country Code)
+                    </label>
                     <input 
                       type="text" 
                       placeholder="e.g. 254712345678"
                       value={terminalPhone}
                       onChange={(e) => setTerminalPhone(e.target.value.replace(/[^0-9]/g, ''))}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-mono"
+                      className="w-full bg-white border-2 border-slate-400 rounded-2xl py-3.5 px-4 text-base font-bold text-slate-950 placeholder:text-slate-400 focus:outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition-all font-mono shadow-sm"
                     />
+                    <span className="text-[10px] text-slate-500 font-bold mt-1 block">Format: [Country code][Phone] without leading 0 or +</span>
                   </div>
                 </div>
 
-                <div className="p-3 bg-slate-50 border border-slate-150/70 rounded-2xl">
-                  <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
-                    💡 <strong className="text-slate-700">Connect Multiple Numbers:</strong> You can link several WhatsApp numbers to this same terminal! Simply supply a different, unique <strong>Bot Key Identifier</strong> (like <code className="font-mono text-emerald-600 font-bold">bot_alice</code> or <code className="font-mono text-emerald-600 font-bold">bot_bob</code>) for each device. Even the same phone number can be set up as multiple separate connection instances!
+                {/* Highly Visible Real-Time Live Input Confirmation Card */}
+                <div className="p-4 bg-gradient-to-r from-indigo-50/90 to-emerald-50/90 border-2 border-indigo-200 rounded-2xl shadow-sm space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      ⌨️ <span className="text-indigo-900">Current Input Review</span> (Visible Confirmation)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTerminalBotId(`bot_${Math.floor(1000 + Math.random() * 9000)}`);
+                        setTerminalPhone('');
+                        setTerminalActiveSession(null);
+                      }}
+                      className="text-[10px] font-black uppercase text-rose-600 hover:text-rose-800 bg-white px-2 py-0.5 rounded-lg border border-rose-200 hover:bg-rose-50 cursor-pointer transition-all"
+                    >
+                      ✕ Clear / Next Device
+                    </button>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <div className="p-2.5 bg-white rounded-xl border border-indigo-100 flex items-center justify-between">
+                      <span className="text-slate-500 font-bold uppercase text-[10px]">Session Key:</span>
+                      <span className="font-mono font-black text-indigo-700 text-sm">{terminalBotId || '(Not Set)'}</span>
+                    </div>
+                    <div className="p-2.5 bg-white rounded-xl border border-emerald-100 flex items-center justify-between">
+                      <span className="text-slate-500 font-bold uppercase text-[10px]">Phone Number:</span>
+                      <span className="font-mono font-black text-emerald-700 text-sm">{terminalPhone ? `+${terminalPhone}` : '(Not Set)'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl">
+                  <p className="text-[11px] text-slate-600 font-medium leading-relaxed">
+                    💡 <strong className="text-slate-900">Multi-Account &amp; Multi-Device Support:</strong> This terminal can run multiple WhatsApp accounts concurrently without limits. Each device connects with its own unique <strong>Bot Key Identifier</strong>. To link an additional account, simply tap <em>Generate New Key</em>, enter the phone number, and pair!
                   </p>
                 </div>
               </div>
@@ -1718,9 +1816,9 @@ export default function App() {
                 if (!terminalBotId || !terminalPhone) {
                   return (
                     <div className="p-6 bg-amber-500/5 border border-dashed border-amber-200 rounded-3xl text-center select-none">
-                      <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wide">⚠️ Credentials Required</p>
-                      <p className="text-[9px] text-slate-400 mt-1 max-w-sm mx-auto font-medium">
-                        Please specify both a custom Bot Identifier and your WhatsApp Phone Number above to proceed with device pairing.
+                      <p className="text-xs font-black text-amber-700 uppercase tracking-wide">⚠️ Credentials Required</p>
+                      <p className="text-[11px] text-slate-500 mt-1 max-w-sm mx-auto font-medium">
+                        Please specify both a Bot Identifier and your WhatsApp Phone Number above to proceed with device pairing.
                       </p>
                     </div>
                   );
@@ -1737,10 +1835,26 @@ export default function App() {
                       </div>
 
                       {isSessConnected ? (
-                        <div className="p-6 bg-emerald-50 border border-emerald-200 rounded-3xl space-y-2 text-center select-none">
-                          <span className="text-2xl">🎉</span>
+                        <div className="p-6 bg-emerald-50 border border-emerald-200 rounded-3xl space-y-4 text-center select-none shadow-sm">
+                          <span className="text-3xl">🎉</span>
                           <p className="text-xs font-black text-emerald-850 uppercase tracking-widest mt-1">WHATSAPP ACCOUNT LINKED SUCCESSFULLY</p>
-                          <p className="text-[10px] text-emerald-600 font-semibold leading-normal">Your WhatsApp session is live and actively listening for chat commands.</p>
+                          <p className="text-[11px] text-emerald-700 font-semibold leading-normal">
+                            Session <code className="font-mono bg-white px-2 py-0.5 rounded border border-emerald-200 text-emerald-800 font-bold">{terminalBotId}</code> is online and active!
+                          </p>
+                          <div className="pt-2 flex justify-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newId = `bot_${Math.floor(1000 + Math.random() * 9000)}`;
+                                setTerminalBotId(newId);
+                                setTerminalPhone('');
+                                setTerminalActiveSession(null);
+                              }}
+                              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider rounded-2xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                            >
+                              ➕ Link Another Device / Account to this Terminal
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2079,34 +2193,92 @@ export default function App() {
                     ))}
                   </div>
 
+                  {/* Highly Visible Input with Live Preview */}
                   <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">WhatsApp Phone Number</label>
+                    <label className="text-xs font-black text-slate-900 uppercase tracking-wider block mb-1.5">
+                      📱 WhatsApp Phone Number
+                    </label>
                     <input 
                       type="text" 
                       placeholder="e.g. 254712345678"
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                      className="w-full bg-white border-2 border-slate-300 rounded-2xl py-3.5 px-4 text-base font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all font-mono"
+                      className="w-full bg-white border-2 border-slate-400 rounded-2xl py-3.5 px-4 text-lg font-black text-slate-950 placeholder:text-slate-400 focus:outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition-all font-mono shadow-sm"
                     />
+                    <span className="text-[10px] text-slate-500 font-bold mt-1 block">
+                      Include country code (e.g. 254 for Kenya, 1 for USA) without + or 0
+                    </span>
                   </div>
+
+                  {/* Real-time Input Review Badge */}
+                  {phoneNumber && (
+                    <div className="p-3 bg-emerald-50 border-2 border-emerald-200 rounded-2xl flex items-center justify-between text-xs font-bold text-slate-800">
+                      <span>
+                        ⌨️ <strong className="uppercase text-[10px] text-emerald-800">Target Number:</strong>{' '}
+                        <span className="font-mono text-emerald-700 font-black text-sm">+{phoneNumber}</span>
+                      </span>
+                      <span className="text-[10px] bg-white px-2 py-0.5 rounded border border-emerald-200 text-slate-600">
+                        Session: {pairingSessionId}
+                      </span>
+                    </div>
+                  )}
 
                   <button 
                     onClick={handleRequestPairingCode}
                     disabled={isRequestingPairing || !phoneNumber}
-                    className="w-full py-6 bg-slate-900 border border-slate-950 hover:bg-slate-800 text-white font-bold text-base uppercase tracking-widest rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 min-h-[56px]"
+                    className="w-full py-4 bg-slate-900 hover:bg-slate-800 active:scale-[0.99] text-white font-black text-sm uppercase tracking-widest rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 min-h-[50px] shadow-md cursor-pointer"
                   >
-                    {isRequestingPairing ? <RefreshCw className="w-4 h-4 animate-spin" /> : '🔗 Generate Pairing Code'}
+                    {isRequestingPairing ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Generating Pairing Code...
+                      </>
+                    ) : (
+                      '🔗 Generate 8-Digit Pairing Code'
+                    )}
                   </button>
 
                   {pairingError && (
-                    <p className="text-xs text-rose-500 font-bold text-center bg-rose-50 p-3 rounded-xl border border-rose-100">{pairingError}</p>
+                    <p className="text-xs text-rose-600 font-black text-center bg-rose-50 p-3.5 rounded-2xl border-2 border-rose-200">
+                      ⚠️ {pairingError}
+                    </p>
                   )}
 
-                  {activeSessState?.pairingCode && (
-                    <div className="text-center p-6 bg-slate-50 rounded-3xl border border-slate-200 shadow-inner space-y-2 animate-bounce">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Linked Device pairing Token</label>
-                      <p className="text-4xl font-mono tracking-widest font-black text-indigo-600">{activeSessState.pairingCode}</p>
-                      <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">Enter this code on your WhatsApp mobile Linked Devices screen.</p>
+                  {(activeSessState?.pairingCode || connection?.pairingCode) && (
+                    <div className="text-center p-6 bg-gradient-to-br from-indigo-50 to-white rounded-3xl border-2 border-indigo-200 shadow-lg space-y-3">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-indigo-700 bg-indigo-100 px-3 py-1 rounded-full inline-block">
+                        ⚡ YOUR WHATSAPP PAIRING CODE
+                      </span>
+                      <div className="flex items-center justify-center gap-3">
+                        <p className="text-4xl sm:text-5xl font-mono tracking-widest font-black text-indigo-700 select-all bg-white px-5 py-2.5 rounded-2xl border border-indigo-200 shadow-inner">
+                          {activeSessState?.pairingCode || connection?.pairingCode}
+                        </p>
+                        <button
+                          onClick={() => {
+                            const codeToCopy = activeSessState?.pairingCode || connection?.pairingCode || '';
+                            navigator.clipboard.writeText(codeToCopy);
+                            setCopiedId('modal_code');
+                            setTimeout(() => setCopiedId(null), 2000);
+                          }}
+                          className="p-3 bg-white hover:bg-indigo-50 border-2 border-indigo-200 text-indigo-600 rounded-2xl shadow-sm transition-all cursor-pointer"
+                          title="Copy Pairing Code"
+                        >
+                          {copiedId === 'modal_code' ? <Check className="w-6 h-6 text-emerald-600" /> : <Copy className="w-6 h-6" />}
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-600 font-semibold leading-relaxed max-w-sm mx-auto">
+                        Open WhatsApp on your phone &gt; <strong>Linked Devices</strong> &gt; <strong>Link with phone number instead</strong> &gt; enter this 8-digit code.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* QR Code fallback if available */}
+                  {(activeSessState?.qr || connection?.qr) && !activeSessState?.pairingCode && !connection?.pairingCode && (
+                    <div className="text-center p-4 bg-slate-50 rounded-3xl border border-slate-200 space-y-2">
+                      <span className="text-[10px] font-black uppercase text-slate-500">Or Scan QR Code to Link</span>
+                      <div className="p-3 bg-white rounded-2xl inline-block shadow-sm border border-slate-200">
+                        <QRCodeSVG value={activeSessState?.qr || connection?.qr || ''} size={150} />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2574,52 +2746,52 @@ export default function App() {
                     </div>
                   )}
                   <div>
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Terminal ID / Key</label>
+                    <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-1.5">Terminal ID / Key</label>
                     <input 
                       type="text" 
                       placeholder="e.g. nairobi_port"
                       value={newTerminalId}
                       onChange={(e) => setNewTerminalId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                      className="w-full bg-white border border-slate-200 rounded-2xl py-2.5 px-4 text-xs font-bold focus:outline-none"
+                      className="w-full bg-white border-2 border-slate-300 rounded-2xl py-3 px-4 text-xs font-bold text-slate-900 focus:outline-none focus:border-indigo-600 shadow-sm"
                     />
                   </div>
                   <div>
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Terminal Display Name</label>
+                    <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-1.5">Terminal Display Name</label>
                     <input 
                       type="text" 
                       placeholder="e.g. Kenya Central Bot"
                       value={newTerminalName}
                       onChange={(e) => setNewTerminalName(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-2xl py-2.5 px-4 text-xs font-bold focus:outline-none"
+                      className="w-full bg-white border-2 border-slate-300 rounded-2xl py-3 px-4 text-xs font-bold text-slate-900 focus:outline-none focus:border-indigo-600 shadow-sm"
                     />
                   </div>
                   <div>
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Operator Manager name</label>
+                    <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-1.5">Operator Manager Name</label>
                     <input 
                       type="text" 
                       placeholder="e.g. Daniel Musembi"
                       value={newTerminalOperator}
                       onChange={(e) => setNewTerminalOperator(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-2xl py-2.5 px-4 text-xs font-semibold focus:outline-none"
+                      className="w-full bg-white border-2 border-slate-300 rounded-2xl py-3 px-4 text-xs font-bold text-slate-900 focus:outline-none focus:border-indigo-600 shadow-sm"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">weekly KES</label>
+                      <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-1.5">Weekly KES</label>
                       <input 
                         type="number" 
                         value={newTerminalWeeklyRate}
                         onChange={(e) => setNewTerminalWeeklyRate(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full bg-white border border-slate-200 rounded-2xl py-2.5 px-3 text-xs font-bold focus:outline-none text-center"
+                        className="w-full bg-white border-2 border-slate-300 rounded-2xl py-3 px-3 text-xs font-bold text-slate-900 focus:outline-none focus:border-indigo-600 text-center shadow-sm"
                       />
                     </div>
                     <div>
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">setup KES</label>
+                      <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-1.5">Setup KES</label>
                       <input 
                         type="number" 
                         value={newTerminalSetupFee}
                         onChange={(e) => setNewTerminalSetupFee(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full bg-white border border-slate-200 rounded-2xl py-2.5 px-3 text-xs font-bold focus:outline-none text-center"
+                        className="w-full bg-white border-2 border-slate-300 rounded-2xl py-3 px-3 text-xs font-bold text-slate-900 focus:outline-none focus:border-indigo-600 text-center shadow-sm"
                       />
                     </div>
                   </div>

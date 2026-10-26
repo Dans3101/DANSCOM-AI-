@@ -325,11 +325,15 @@ app.post('/api/sessions', async (req, res) => {
   if (!cleanId) return res.status(400).json({ error: 'Invalid sessionId' });
 
   try {
-    await startWhatsAppSession(cleanId);
+    const { isSessionRegisteredOnDisk } = await import('./services/whatsapp.js');
+    const isRegistered = await isSessionRegisteredOnDisk(cleanId);
+    if (isRegistered) {
+      await startWhatsAppSession(cleanId);
+    }
     if (terminalId) {
       await addSessionToTerminal(terminalId, cleanId);
     }
-    res.json({ status: 'Session started', sessionId: cleanId });
+    res.json({ status: isRegistered ? 'Session started' : 'Session ready for pairing', sessionId: cleanId });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

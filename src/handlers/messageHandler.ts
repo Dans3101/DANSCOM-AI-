@@ -1,5 +1,5 @@
 import { WASocket, proto } from '@whiskeysockets/baileys';
-import { isEnabled, setFeature } from '../utils/settings.js';
+import { isEnabled, setFeature, isGroupActivated, setGroupActivated } from '../utils/settings.js';
 import { config } from '../config/index.js';
 import { processCommand } from '../commands/index.js';
 import { geminiAssistant } from '../services/gemini.js';
@@ -28,7 +28,7 @@ export const getCachedGroupMetadata = async (sock: WASocket, groupJid: string): 
   }
 };
 
-const checkIfAdmin = async (sock: WASocket, groupJid: string, senderJid: string, isOwner: boolean): Promise<boolean> => {
+export const checkIfAdmin = async (sock: WASocket, groupJid: string, senderJid: string, isOwner: boolean): Promise<boolean> => {
   if (isOwner) return true;
   
   const botNumber = sock.user?.id?.split(':')[0]?.replace(/[^0-9]/g, '');
@@ -238,10 +238,20 @@ const processSingleMessage = async (sock: WASocket, msg: any, sessionId: string)
 
     body = body.trim();
     
+    // Silence on numbers 1 to 31 in groups:
+    // If a group member types any number from 1 to 31, completely ignore and do not respond at all.
+    if (isGroup) {
+      if (/^[#./!]?\s*0*([1-9]|[12][0-9]|3[01])\s*[.]?$/i.test(body)) {
+        return;
+      }
+    }
+
     // Auto AntiLink Protection Filter (non-blocking)
     const linkRegex = /chat\.whatsapp\.com\/[a-zA-Z0-9]+|https?:\/\/[^\s]+/gi;
     if (isGroup && linkRegex.test(body)) {
-      isEnabled('antilink', sessionId).then(async (enabled) => {
+      isGroupActivated(from, sessionId).then(async (isActivated) => {
+        if (!isActivated) return;
+        const enabled = await isEnabled('antilink', sessionId);
         if (enabled) {
           try {
             const groupMetadata = await getCachedGroupMetadata(sock, from);
@@ -283,9 +293,11 @@ const processSingleMessage = async (sock: WASocket, msg: any, sessionId: string)
       }
     }
 
-    // List of known commands that can run without prefix
+    // List of known commands that can run without prefix in private chats
     const knownCommands = [
-      'ping', 'menu', 'help', 'allmenu', 'enable', 'disable', 'settings', 
+      'ping', 'menu', 'help', 'allmenu', 'enable', 'disable', 'settings', 'status',
+      'danscom', 'mode', 'public', 'private', 'autoread', 'autotyping', 'autorecord',
+      'antidelete', 'autostatus', 'autostatuslike', 'chatbot', 'anticall', 'antilink',
       'video', 'ytmp4', 'fb', 'ig', 'tiktok', 'image', 'ai', 
       'gpt', 'premium', 'pay', 'checksub', 'stats', 'contacts',
       'vv', 'kick', 'promote', 'demote', 'tagall'
@@ -294,9 +306,11 @@ const processSingleMessage = async (sock: WASocket, msg: any, sessionId: string)
     if (!isCmd) {
       const lowerBody = body.toLowerCase().trim();
       const firstWord = lowerBody.split(/\s+/)[0];
-      const isNumericSubmenu = /^\d+$/.test(firstWord) && parseInt(firstWord, 10) >= 1 && parseInt(firstWord, 10) <= 35;
+      // Numeric submenu selection is ONLY supported in direct private chats, NEVER in groups
+      const isNumericSubmenu = !isGroup && /^\d+$/.test(firstWord) && parseInt(firstWord, 10) >= 1 && parseInt(firstWord, 10) <= 35;
+      const isGlobalCommand = !isGroup && (firstWord === 'danscom' || firstWord === 'menu' || firstWord === 'ping' || firstWord === 'help');
 
-      if (isNumericSubmenu || !isGroup) {
+      if (isNumericSubmenu || !isGroup || isGlobalCommand) {
         if (knownCommands.includes(firstWord) || isNumericSubmenu) {
           isCmd = true;
           command = firstWord;
@@ -315,40 +329,63 @@ const processSingleMessage = async (sock: WASocket, msg: any, sessionId: string)
     const isSessionDisabled = metadata?.disabled === true;
 
     if (isCmd) {
-      // Group bot status check (.danscom on / off)
+      // Group bot status check and activation gate
       if (isGroup) {
-        if (command === 'danscom') {
-          const mode = args[0]?.toLowerCase();
-          const isAdmin = await checkIfAdmin(sock, from, sender, isOwner);
-          if (!isAdmin) {
-            await sock.sendMessage(from, { text: `❌ *Access Denied:* Only group administrators can configure the DANSCOM bot in this group!` }, { quoted: m });
-            return;
+        const isActivated = await isGroupActivated(from, sessionId);
+
+        const isActivateCmd = 
+          command === 'activate' || 
+          command === 'activatebot' || 
+          command === 'act' || 
+          ((command === 'danscom' || command === 'bot') && (args[0]?.toLowerCase() === 'on' || args[0]?.toLowerCase() === 'activate'));
+
+        const isDeactivateCmd = 
+          command === 'deactivate' || 
+          command === 'deactivatebot' || 
+          command === 'deact' || 
+          ((command === 'danscom' || command === 'bot') && (args[0]?.toLowerCase() === 'off' || args[0]?.toLowerCase() === 'deactivate'));
+
+        // If the group is NOT activated:
+        if (!isActivated) {
+          if (isActivateCmd) {
+            const isAdmin = await checkIfAdmin(sock, from, sender, isOwner);
+            if (isAdmin) {
+              await setGroupActivated(from, true, sessionId);
+              const activateNotice = `╭━━━〔 DANSCOM BOT 〕━━━╮\n\n✅ Connection Established Successfully\n\n🤖 Bot: DANSCOM Bot\n📡 Status: Active & Online\n🔗 Session: "${sessionId}"\n👥 Group Status: Activated 🟢\n\nWelcome to DANSCOM Bot — your intelligent assistant for seamless automation and efficient command execution.\n\n⚙️ GETTING STARTED\nTo view the command menu and explore available features, send:\n\n➤ ".menu"\n➤ "/menu"\n\n📌 Simply send either command in this chat to get started.\n\n╰━━ DANSCOM | Smart Automation ━━╯`;
+              await sock.sendMessage(from, { text: activateNotice }, { quoted: m });
+              return;
+            }
           }
-          if (mode === 'on') {
-            await setFeature(`danscom_group_enabled_${from}`, true, sessionId);
-            await sock.sendMessage(from, { text: `✅ *DANSCOM ENABLED:* The bot has been successfully activated for this group! All group members can now use all bot commands.` }, { quoted: m });
-            return;
-          } else if (mode === 'off') {
-            await setFeature(`danscom_group_enabled_${from}`, false, sessionId);
-            await sock.sendMessage(from, { text: `🛑 *DANSCOM DISABLED:* The bot has been deactivated for this group. Only group admins can re-enable it using \`.danscom on\`.` }, { quoted: m });
+          // The group is NOT activated.
+          // Rule: Even if a bot command is requested in a group it should not respond anything even an alert.
+          // Silently return with zero responses or alerts.
+          console.log(`[Group Muted] Silently ignored '${command}' in unactivated group ${from}`);
+          return;
+        }
+
+        // If the group IS activated: check for deactivation commands
+        if (isDeactivateCmd) {
+          const isAdmin = await checkIfAdmin(sock, from, sender, isOwner);
+          if (isAdmin) {
+            await setGroupActivated(from, false, sessionId);
+            const deactNotice = `╭━━━〔 DANSCOM BOT 〕━━━╮\n\n🛑 Group Deactivated Successfully\n\n🤖 Bot: DANSCOM Bot\n📡 Group Status: Inactive 🔴\n\nThe bot has been deactivated in this group. It will not respond to any commands until reactivated by an admin using ".activate".\n\n╰━━ DANSCOM | Smart Automation ━━╯`;
+            await sock.sendMessage(from, { text: deactNotice }, { quoted: m });
             return;
           } else {
-            const currentStatus = await isEnabled(`danscom_group_enabled_${from}`, sessionId);
-            await sock.sendMessage(from, { text: `⚙️ *DANSCOM Group Settings:*
-• Current Status: *${currentStatus ? 'ACTIVE 🟢' : 'INACTIVE 🔴'}*
+            // Non-admin attempting deactivation in activated group: stay silent
+            return;
+          }
+        }
 
-👇 *Admin/Owner Commands:*
-• \`.danscom on\` - Enable bot services for all group members.
-• \`.danscom off\` - Disable bot services in this group.` }, { quoted: m });
-            return;
+        // Status check for .danscom or .bot status
+        if ((command === 'danscom' || command === 'bot') && (!args[0] || args[0].toLowerCase() === 'status')) {
+          const isAdmin = await checkIfAdmin(sock, from, sender, isOwner);
+          if (isAdmin) {
+            await sock.sendMessage(from, { 
+              text: `⚙️ *DANSCOM Group Status:* *ACTIVE 🟢*\n\n• Type \`.deactivate\` or \`.danscom off\` to mute bot in this group.` 
+            }, { quoted: m });
           }
-        } else {
-          // Check if group is enabled (defaults to true)
-          const isGroupEnabled = await isEnabled(`danscom_group_enabled_${from}`, sessionId);
-          if (!isGroupEnabled) {
-            console.log(`[DANSCOM] Ignored group command '${command}' because DANSCOM is disabled in group ${from}.`);
-            return;
-          }
+          return;
         }
       }
 
@@ -379,6 +416,11 @@ const processSingleMessage = async (sock: WASocket, msg: any, sessionId: string)
             }, { quoted: m });
           }
           return;
+        }
+        // In groups, AI reply must NEVER trigger unless the group is activated!
+        if (isGroup) {
+          const isAct = await isGroupActivated(from, sessionId);
+          if (!isAct) return;
         }
         // Only reply if mentioned or in private chat
         if (!isGroup || body.toLowerCase().includes('bot')) {
